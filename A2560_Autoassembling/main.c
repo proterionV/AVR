@@ -14,10 +14,21 @@
 
 #define F_CPU    16000000UL
 
-#define Led      PORTB &  (1<<7)
-#define LedOn    PORTB |= (1<<7)
-#define LedOff   PORTB &= (0<<7)
-#define LedInv   PORTB ^= (1<<7)
+#define True	 1
+#define False	 0
+
+#define On		 1
+#define Off		 0
+
+#define Check(REG,BIT) (REG &  (1<<BIT))
+#define Inv(REG,BIT)   (REG ^= (1<<BIT))
+#define High(REG,BIT)  (REG |= (1<<BIT))
+#define Low(REG,BIT)   (REG &= (0<<BIT))
+
+#define Led     Check(PORTB, 7)
+#define LedOn   High(PORTB, 7)
+#define LedOff  Low(PORTB, 7)
+#define LedInv  Inv(PORTB, 7)
 
 #define Right    (~PINC & (1<<0))
 #define Left     (~PINC & (1<<1))      
@@ -27,7 +38,7 @@
 #define Disable	 (PINL & (1<<2)) 
  
 #define DDSOut	 (PORTB & (1<<0))
-#define DDSOutInv	 PORTB ^= (1<<0);
+#define DDSOutInv PORTB ^= (1<<0);
  
 #define Phase    (PORTB & (1<<2))
 #define PhaseOn  PORTB |= (1<<2)
@@ -39,6 +50,11 @@
 
 #define FrequencyArraySize 1500
 #define TensionArraySize   30
+#define RxBufferSize 100
+
+#define NextLine    0x0A
+#define FillCell    0xFF
+#define Terminator  '$'
 
 #include <xc.h>
 #include <avr/io.h>
@@ -71,7 +87,6 @@ volatile struct
     unsigned short button;
     float multiplier;
     float addendumValues[4];
-    
     enum Addendums
     {
         one,
@@ -111,6 +126,13 @@ volatile struct
 	signed int value;
 	unsigned short done;	
 } Converter;
+
+struct
+{
+	unsigned char byte;
+	char bytes[RxBufferSize];
+	unsigned short byteReceived, dataHandled;
+} Receive;
 
 ISR(TIMER1_OVF_vect)
 {
@@ -191,14 +213,20 @@ ISR(ADC_vect)
 	Converter.done++;;	
 }
 
-void Timer1_Init(void)
+ISR(USART_RX_vect)
+{
+	Receive.byte = UDR0;
+	Receive.byteReceived++;
+}
+
+void Timer1(void)
 {
     TCNT1 = 62411;  // 62411 = 200 ms
     TCCR1B = (1 << CS12)|(0 << CS11)|(1 << CS10);   // scaler 10 bit
     TIMSK1 = (1 << TOIE1);
 }
 
-void Timer3_Init(unsigned short enable)
+void Timer3(unsigned short enable)
 {
 	if (enable)
 	{
@@ -212,7 +240,7 @@ void Timer3_Init(unsigned short enable)
 	TIMSK3 = (0 << TOIE3);
 }
 
-void Timer4_Init(unsigned short enable)
+void Timer4(unsigned short enable)
 {
 	if (enable)
 	{
@@ -225,7 +253,7 @@ void Timer4_Init(unsigned short enable)
 	TIMSK4 = (0 << TOIE4)|(0 << ICIE4);
 }
 
-void Timer5_Init(unsigned short enable)
+void Timer5(unsigned short enable)
 {
 	if (enable)
 	{
@@ -239,133 +267,163 @@ void Timer5_Init(unsigned short enable)
 	 TCNT5 = 0;
 }
 
-void ADC_Init()
+void ADC_Converter()
 {
 	ADCSRA = 0x8F;
 	ADMUX = 0x40;
 	OffADC;	
 }
 
-void UART_Init()
+void UART()
 {
-	UCSR0B |= (1<<RXEN0)|(1<<TXEN0); 
-	UCSR0C |= (1<<UCSZ01)|(1<<UCSZ00); 
+	UCSR0B = (1 << RXEN0) | (1 << TXEN0) | (1 << RXCIE0);
+	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
 	UBRR0L = 0;
-}
-
-void UART_Send(unsigned char c)
-{
-	while(!( UCSR0A & (1 << UDRE0)));
-	UDR0 = c;
-}
-
-void UART_SendS(char* s)
-{
-	unsigned char i;
-	for (i=0; s[i]; i++)
-	{
-		UART_Send(s[i]);
-	}
-}
-
-void UART_Receive()
-{
-	
 }
 
 void EraseUnits(int x, int y, int offset, float count)
 {
-    char eraser = 32;
-    
-    if (count<1000000000 || count < 0)
-    {
-        lcd_gotoxy(x+offset+9,y);
-        lcd_putc(eraser);
-    }
-    
-    if (count<100000000 || count < 0)
-    {
-        lcd_gotoxy(x+offset+8,y);
-        lcd_putc(eraser);
-    }
-    
-    if (count<10000000 || count < 0)
-    {
-        lcd_gotoxy(x+offset+7,y);
-        lcd_putc(eraser);
-    }
-    
-    if (count<1000000 || count < 0)
-    {
-        lcd_gotoxy(x+offset+6,y);
-        lcd_putc(eraser);
-    }
-    
-    if (count<100000 || count < 0)
-    {
-        lcd_gotoxy(x+offset+5,y);
-        lcd_putc(eraser);
-    }
-    
-    if (count<10000)
-    {
-        lcd_gotoxy(x+offset+4,y);
-        lcd_putc(eraser);
-    }
-    
-    if (count<1000)
-    {
-        lcd_gotoxy(x+offset+3,y);
-        lcd_putc(eraser);
-    }
-    
-    if (count<100)
-    {
-        lcd_gotoxy(x+offset+2,y);
-        lcd_putc(eraser);
-    }
-    
-    if (count<10)
-    {
-        lcd_gotoxy(x+offset+1,y);
-        lcd_putc(eraser);
-    }
+	char eraser = 32;
+	
+	if (count<1000000000 || count < 0)
+	{
+		lcd_gotoxy(x+offset+9,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<100000000 || count < 0)
+	{
+		lcd_gotoxy(x+offset+8,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<10000000 || count < 0)
+	{
+		lcd_gotoxy(x+offset+7,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<1000000 || count < 0)
+	{
+		lcd_gotoxy(x+offset+6,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<100000 || count < 0)
+	{
+		lcd_gotoxy(x+offset+5,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<10000)
+	{
+		lcd_gotoxy(x+offset+4,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<1000)
+	{
+		lcd_gotoxy(x+offset+3,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<100)
+	{
+		lcd_gotoxy(x+offset+2,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<10)
+	{
+		lcd_gotoxy(x+offset+1,y);
+		lcd_putc(eraser);
+	}
 }
 
 void DisplayPrint(void)
 {
-    static char frequency[10], multiplier[10], addendum[10];
+	static char frequency[10], multiplier[10], addendum[10];
 	//static char setting[10];
 	static char tension[10];
 	
-    EraseUnits(0, 0, 1, Measure.frequency);
-    sprintf(frequency,"F %.1f",Measure.frequency);
-    lcd_gotoxy(0,0);
-    lcd_puts(frequency);
-    
-    EraseUnits(9, 0, 0, Encoder.multiplier);
-    sprintf(multiplier,"x%.3f",Encoder.multiplier);
-    lcd_gotoxy(9,0);
-    lcd_puts(multiplier);
-    
+	EraseUnits(0, 0, 1, Measure.frequency);
+	sprintf(frequency,"F %.1f",Measure.frequency);
+	lcd_gotoxy(0,0);
+	lcd_puts(frequency);
+	
+	EraseUnits(9, 0, 0, Encoder.multiplier);
+	sprintf(multiplier,"x%.3f",Encoder.multiplier);
+	lcd_gotoxy(9,0);
+	lcd_puts(multiplier);
+	
 	EraseUnits(0, 1, 1, Converter.tension);
 	sprintf(tension,"T %.1f",Converter.tension);
 	lcd_gotoxy(0,1);
 	lcd_puts(tension);
 	
-    //EraseUnits(0, 1, 1, DDS.setting);
-    //sprintf(setting,"%.1f",DDS.setting);
-    //lcd_gotoxy(0,1);
-    //lcd_puts(setting);
-    
-    sprintf(addendum,"%.3f",Encoder.addendumValues[Encoder.addendum]);
-    lcd_gotoxy(10,1);
-    lcd_puts(addendum);
+	//EraseUnits(0, 1, 1, DDS.setting);
+	//sprintf(setting,"%.1f",DDS.setting);
+	//lcd_gotoxy(0,1);
+	//lcd_puts(setting);
+	
+	sprintf(addendum,"%.3f",Encoder.addendumValues[Encoder.addendum]);
+	lcd_gotoxy(10,1);
+	lcd_puts(addendum);
+}
+
+void UART_TransmitChar(unsigned char c)
+{
+	while (!(UCSR0A & (1<<UDRE0)));
+	UDR0 = c;
+}
+
+void UART_TransmitString(const char* s)
+{
+	for (int i=0; s[i]; i++) UART_TransmitChar(s[i]);
+}
+
+unsigned short UART_ReceiveHandler()
+{
+	static unsigned short queue = 0;
+	static char undefined[RxBufferSize];
+	
+	if (Receive.byte != Terminator)
+	{
+		Receive.bytes[queue] = Receive.byte;
+		queue = (queue + 1) % RxBufferSize;
+		return False;
+	}
+	
+	Receive.bytes[++queue] = 0;
+	
+	if (!(strcasecmp(Receive.bytes, "led")))
+	{
+		LedInv;
+	}
+	else if (!(strcasecmp(Receive.bytes, "print")))
+	{
+		EraseUnits(0, 0, 0, 0);
+		lcd_gotoxy(0, 0);
+		lcd_puts(Receive.bytes);
+	}
+	else
+	{
+		for (int i=0; i<RxBufferSize; i++) undefined[0] = 0;
+		strcat(undefined, "Undefined command: \"");
+		strcat(undefined, Receive.bytes);
+		strcat(undefined, "\"");
+		UART_TransmitString(undefined);
+	}
+	
+	for (int i=0; i<RxBufferSize; i++) Receive.bytes[i] = 0;
+	queue = 0;
+	return True;
 }
 
 float GetAddendum(void)
 {
-    unsigned int divider = DDS.setting < 11000 ? 10000 : 100000;
+    static unsigned int divider = 0;
+	divider = DDS.setting < 11000 ? 10000 : 100000;
     return (((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider;    
 }
 
@@ -586,9 +644,9 @@ void ModeDefiner()
 		MainTimer.flagStop = 0;	
 		MainTimer.flagStart++;
 		
-		Timer3_Init(0);
-		Timer4_Init(1);
-		Timer5_Init(1);	
+		Timer3(0);
+		Timer4(1);
+		Timer5(1);	
 	}
 	
 	if (Disable && !MainTimer.flagStop)
@@ -596,9 +654,9 @@ void ModeDefiner()
 		LedOff;
 		PhaseOff;
 		
-		Timer3_Init(0);
-		Timer4_Init(0);
-		Timer5_Init(0);
+		Timer3(0);
+		Timer4(0);
+		Timer5(0);
 		
 		for (int i = 0; i < Measure.average; i++) Measure.values[i] = 0;
 		FilterMovingAverageFrequency(0, 1);
@@ -632,7 +690,6 @@ void ModeDefiner()
 void SendValues()
 {
 	static char frequency[10], tension[10];
-	//static unsigned short line = 0;
 	static char buffer[40];
 	
 	for (int i=0; i<40; i++) buffer[i] = 0;
@@ -643,19 +700,7 @@ void SendValues()
 	strcat(buffer, frequency);
 	strcat(buffer, tension);
 	
-	UART_SendS(buffer); 
-	
-	//if (line)
-	//{
-		//sprintf(frequency, "F%.1f", Measure.frequency);
-		//UART_SendS(frequency);
-		//line = 0;
-		//return;
-	//}
-	//
-	//sprintf(tension, "T%.1f", Converter.tension);
-	//UART_SendS(tension);
-	//line++;
+	UART_TransmitString(buffer); 
 }
 
 int main(void)
@@ -673,9 +718,9 @@ int main(void)
     PORTL = 0xFF; 
      
     lcd_init(LCD_DISP_ON);
-	Timer1_Init();
-	UART_Init();
-	ADC_Init();
+	Timer1();
+	UART();
+	ADC_Converter();
 	
 	Initialization(one, 3.333, 0, 1, 40, 0.20, 0.003);
 	

@@ -7,6 +7,40 @@ Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A2560_Autoassembling", "A25
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Test", "A328P_Test\A328P_Test.cproj", "{7B1D0278-B783-4DEF-A375-B0CCB805EC3C}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Libraries", "Libraries", "{114D43B6-E66F-4C46-BF92-A628000E558A}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "i2chw", "i2chw", "{AC99E7EF-CF7F-4D47-88A3-7787C2AFD43E}"
+	ProjectSection(SolutionItems) = preProject
+		A328P_Test\lcd\i2chw\i2cmaster.h = A328P_Test\lcd\i2chw\i2cmaster.h
+		A328P_Test\lcd\i2chw\twimaster.c = A328P_Test\lcd\i2chw\twimaster.c
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "pcf8574", "pcf8574", "{994332E8-267F-47CB-B59C-223384918F86}"
+	ProjectSection(SolutionItems) = preProject
+		A328P_Test\lcd\pcf8574\pcf8574.c = A328P_Test\lcd\pcf8574\pcf8574.c
+		A328P_Test\lcd\pcf8574\pcf8574.h = A328P_Test\lcd\pcf8574\pcf8574.h
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "lcdpcf8574", "lcdpcf8574", "{355DAC14-7EEA-406D-9B34-FAC5B32A9E9E}"
+	ProjectSection(SolutionItems) = preProject
+		A328P_Test\lcd\lcdpcf8574\lcdpcf8574.c = A328P_Test\lcd\lcdpcf8574\lcdpcf8574.c
+		A328P_Test\lcd\lcdpcf8574\lcdpcf8574.h = A328P_Test\lcd\lcdpcf8574\lcdpcf8574.h
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "lcd1602", "lcd1602", "{E4C88E04-DE02-46E0-BD71-F65B4CDBF88F}"
+	ProjectSection(SolutionItems) = preProject
+		A2560_Autoassembling\lcd\lcd.c = A2560_Autoassembling\lcd\lcd.c
+		A2560_Autoassembling\lcd\lcd.h = A2560_Autoassembling\lcd\lcd.h
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "uart", "uart", "{6302972F-64CD-410D-ADEE-4BD464E762A0}"
+	ProjectSection(SolutionItems) = preProject
+		..\AVR old\Microchip\Libraries\uart\uart.c = ..\AVR old\Microchip\Libraries\uart\uart.c
+		..\AVR old\Microchip\Libraries\uart\uart.h = ..\AVR old\Microchip\Libraries\uart\uart.h
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Notes", "Notes", "{6A600507-4AF9-40BD-A275-EE66B8AFD88B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
@@ -24,5 +58,12 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{AC99E7EF-CF7F-4D47-88A3-7787C2AFD43E} = {114D43B6-E66F-4C46-BF92-A628000E558A}
+		{994332E8-267F-47CB-B59C-223384918F86} = {114D43B6-E66F-4C46-BF92-A628000E558A}
+		{355DAC14-7EEA-406D-9B34-FAC5B32A9E9E} = {114D43B6-E66F-4C46-BF92-A628000E558A}
+		{E4C88E04-DE02-46E0-BD71-F65B4CDBF88F} = {114D43B6-E66F-4C46-BF92-A628000E558A}
+		{6302972F-64CD-410D-ADEE-4BD464E762A0} = {114D43B6-E66F-4C46-BF92-A628000E558A}
 	EndGlobalSection
 EndGlobal
