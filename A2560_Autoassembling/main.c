@@ -43,10 +43,7 @@
 #define Phase    (PORTB & (1<<2))
 #define PhaseOn  PORTB |= (1<<2)
 #define PhaseOff PORTB &= (0<<2)
-#define PhaseInv PORTB ^= (1<<2)    
-
-#define OnADC	 ADCSRA |= (1<<ADSC);
-#define OffADC   ADCSRA |= (0<<ADSC);    
+#define PhaseInv PORTB ^= (1<<2)      
 
 #define FrequencyArraySize 1500
 #define TensionArraySize   30
@@ -67,7 +64,6 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
-#include "dht11/dht11.h"
 #include <avr/eeprom.h>
 
 const unsigned long int ACCUM_MAXIMUM = 1875000000; 
@@ -101,12 +97,9 @@ volatile struct
 volatile struct 
 {
     unsigned long int ticksCurrent,ticksPrevious,ticks;
-    unsigned long int overflows,ticksBuffer; 
-    unsigned short action, periodicMeasure, ovfFlag;     
-    unsigned short done, index, valuesFull, method, zero;
-	unsigned int average;
-	float values[100];
-    float period, frequency, previousFrequency, bufFrequency, pulseCount;	
+    unsigned long int overflows,ticksBuffer;      
+    unsigned short done, index, method, zero;
+    float period, frequency, bufFrequency, pulseCount;	
 } Measure;
 
 volatile struct 
@@ -129,15 +122,9 @@ volatile struct
 	unsigned short done;	
 } Converter;
 
-struct
-{
-	int8_t humidity, temperature;	
-} Environment;
-
-struct
+volatile struct
 {
 	unsigned char byte;
-	char bytes[RxBufferSize];
 	unsigned short byteReceived, dataHandled;
 } Receive;
 
@@ -149,14 +136,12 @@ ISR(TIMER1_OVF_vect)
 	TCNT1 = 62411; // 62411 - 200 ms 
 	MainTimer.ms200++;
 	MainTimer.ms200transmit++;
-	OnADC;
 	
 	if (MainTimer.ms200 >= 5 || MainTimer.ms40 >= 25)
 	{
 		MainTimer.ms40 = 0;
 		MainTimer.ms200 = 0;
 		MainTimer.ms1000++;
-		//if (Phase) Measure.done++;
 	}
 }
 
@@ -202,20 +187,11 @@ ISR(TIMER5_OVF_vect)
     {
 		DDSOutInv;
         DDS.accum -= ACCUM_MAXIMUM;
-		//DDS.counter++;
     }
-	
-	//if (DDS.counter/2 >= DDS.setting)
-	//{
-		//DDS.setting = 0;
-		//DDS.increment = 0;
-		//if (DDSOut) DDSOutInv; 
-	//}
 }
 
 ISR(ADC_vect)
 {
-	OffADC;
 	Converter.value = ((signed)ADCW-21);
 	Converter.done++;;	
 }
@@ -274,11 +250,17 @@ void Timer5(unsigned short enable)
 	 TCNT5 = 0;
 }
 
-void ADC_Converter()
+void ADC_Converter(unsigned short enable)
 {
-	ADCSRA = 0x8F;
-	ADMUX = 0x40;
-	OffADC;	
+	if (enable)
+	{
+		ADCSRA = 0x8F;
+		ADMUX = 0x40;
+		ADCSRA |= (1<<ADSC);	
+		return;
+	}
+	
+	ADCSRA |= (0<<ADSC);
 }
 
 void USART()
@@ -392,37 +374,38 @@ void USART_TransmitString(const char* s)
 unsigned short UART_ReceiveHandler()
 {
 	static unsigned short queue = 0;
+	static char bytes[RxBufferSize];
 	static char undefined[RxBufferSize];
 	
 	if (Receive.byte != Terminator)
 	{
-		Receive.bytes[queue] = Receive.byte;
+		bytes[queue] = Receive.byte;
 		queue = (queue + 1) % RxBufferSize;
 		return False;
 	}
 	
-	Receive.bytes[++queue] = 0;
+	bytes[++queue] = 0;
 	
-	if (!(strcasecmp(Receive.bytes, "led")))
+	if (!(strcasecmp(bytes, "led")))
 	{
 		LedInv;
 	}
-	else if (!(strcasecmp(Receive.bytes, "print")))
+	else if (!(strcasecmp(bytes, "print")))
 	{
 		EraseUnits(0, 0, 0, 0);
 		lcd_gotoxy(0, 0);
-		lcd_puts(Receive.bytes);
+		lcd_puts(bytes);
 	}
 	else
 	{
 		for (int i=0; i<RxBufferSize; i++) undefined[0] = 0;
 		strcat(undefined, "Undefined command: \"");
-		strcat(undefined, Receive.bytes);
+		strcat(undefined, bytes);
 		strcat(undefined, "\"");
 		USART_TransmitString(undefined);
 	}
 	
-	for (int i=0; i<RxBufferSize; i++) Receive.bytes[i] = 0;
+	for (int i=0; i<RxBufferSize; i++) bytes[i] = 0;
 	queue = 0;
 	return True;
 }
@@ -508,58 +491,48 @@ void EncoderHandler(void)
     } 
 }
 
-void Initialization(enum Addendums addendum, float multiplier, unsigned int setting, unsigned short method, float measureVariation, float estimateVariation, float speedVariation)
+void Reset()
+{
+	Encoder.button = 0;
+	Encoder.forward = 0;
+	Encoder.backward = 0;
+	
+	Measure.method = 0;	
+	Measure.index = 0;
+	Measure.done = 0;
+	Measure.period = 0;
+	Measure.frequency = 0;
+	Measure.overflows = 0;
+	Measure.pulseCount = 0;
+	Measure.ticksCurrent = 0;
+	Measure.ticksPrevious = 0;
+	
+	DDS.accum = 0;
+	DDS.setting = 0;
+	DDS.increment = 0;
+	
+	Converter.done = 0;
+	Converter.value = 0;
+	Converter.tension = 0;
+	
+	LedOff;
+	PhaseOff;
+	
+}
+
+void Initialization()
 {   
 	MainTimer.ms200 = 0;
 	MainTimer.ms1000 = 0;
 	MainTimer.flagStart = 0;
 	MainTimer.flagStop = 0;
 	
-	Encoder.button = 0;
-	Encoder.forward = 0;
-	Encoder.backward = 0;
+	Encoder.addendum = 3;
     Encoder.addendumValues[0] = 1; 
     Encoder.addendumValues[1] = 0.1;
     Encoder.addendumValues[2] = 0.01;
     Encoder.addendumValues[3] = 0.001;
-	Encoder.addendum = addendum;
-	Encoder.multiplier = eeprom_read_float((float*)1);
-	
-	Measure.index = 0;
-	Measure.action = 0;
-	Measure.done = 0;
-	Measure.frequency = 0;
-	Measure.frequency = 0;
-	Measure.overflows = 0;
-	Measure.period = 0;
-	Measure.periodicMeasure = 0;
-	Measure.previousFrequency = 0;
-	Measure.pulseCount = 0;
-	Measure.ticksCurrent = 0;
-	Measure.ticksPrevious = 0;
-	Measure.valuesFull = 0;
-	Measure.average = 100;
-	Measure.method = method;
-	
-	for (int i=0; i<Measure.average; i++) Measure.values[i] = 0;
-    
-    DDS.setting = setting;
-    DDS.increment = GetAddendum();
-	DDS.accum = 0;
-	
-	Kalman.measureVariation = measureVariation;
-	Kalman.estimateVariation = estimateVariation;
-	Kalman.speedVariation = speedVariation;
-	
-	Converter.done = 0;
-	Converter.value = 0;
-	Converter.tension = 0;
-	
-	Environment.humidity = 0;
-	Environment.temperature = 0;
-
-	LedOff;
-	PhaseOff;
+	Encoder.multiplier = eeprom_read_float((float*)1);	
 }
 
 float FilterMovingAverageFrequency(float value, unsigned short reset)
@@ -606,6 +579,11 @@ float FilterMovingAverageTension(float value, unsigned short reset)
 
 float FilterKalman(float value, unsigned short reset)
 {
+	float measureVariation = 0, estimateVariation = 0, speedVariation = 0;
+	Kalman.measureVariation = measureVariation;
+	Kalman.estimateVariation = estimateVariation;
+	Kalman.speedVariation = speedVariation;
+	
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -654,9 +632,9 @@ void ModeDefiner()
 		MainTimer.flagStop = 0;	
 		MainTimer.flagStart++;
 		
-		Timer3(0);
-		Timer4(1);
-		Timer5(1);	
+		Timer3(Off);
+		Timer4(On);
+		Timer5(On);	
 	}
 	
 	if (Disable && !MainTimer.flagStop)
@@ -664,29 +642,24 @@ void ModeDefiner()
 		LedOff;
 		PhaseOff;
 		
-		Timer3(0);
-		Timer4(0);
-		Timer5(0);
+		Timer3(Off);
+		Timer4(Off);
+		Timer5(Off);
 		
-		for (int i = 0; i < Measure.average; i++) Measure.values[i] = 0;
-		FilterMovingAverageFrequency(0, 1);
-		FilterMovingAverageTension(0, 1);
-		FilterKalman(0, 1);
+		FilterMovingAverageFrequency(0, True);
+		FilterMovingAverageTension(0, True);
+		FilterKalman(0, True);
 		
 		MainTimer.delayCounter = 0;
 		MainTimer.flagStart = 0;
 		
 		Measure.done = 0;
-		Measure.periodicMeasure = 0;
 		Measure.pulseCount = 0;	
 		Measure.period = 0;
 		Measure.frequency = 0;
-		Measure.previousFrequency = 0;
 		Measure.ticksCurrent = 0;
 		Measure.ticksPrevious = 0;
 		Measure.overflows = 0;
-		Measure.action = 0;
-		Measure.valuesFull = 0;
 		Measure.index = 0;
 		Measure.frequency = 0;
 		
@@ -716,12 +689,6 @@ void SendValues()
 	USART_TransmitString(parameter); 
 }
 
-void GetEnvironmentData()
-{
-	Environment.humidity = dht11_gethumidity();
-	Environment.temperature = dht11_gettemperature();
-};
-
 int main(void)
 {
     DDRA = 0xFF;                  
@@ -739,10 +706,9 @@ int main(void)
     lcd_init(LCD_DISP_ON);
 	Timer1();
 	USART();
-	ADC_Converter();
 	
-	Initialization(one, 3.333, 0, 1, 40, 0.20, 0.003);
-	
+	Initialization();
+	Reset();
     sei();
 	
     while(1)
