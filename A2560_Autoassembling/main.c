@@ -51,6 +51,7 @@
 #define FrequencyArraySize 1500
 #define TensionArraySize   30
 #define RxBufferSize 100
+#define TxBufferSize 100
 
 #define NextLine    0x0A
 #define FillCell    0xFF
@@ -66,6 +67,7 @@
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
+#include "dht11/dht11.h"
 #include <avr/eeprom.h>
 
 const unsigned long int ACCUM_MAXIMUM = 1875000000; 
@@ -126,6 +128,11 @@ volatile struct
 	signed int value;
 	unsigned short done;	
 } Converter;
+
+struct
+{
+	int8_t humidity, temperature;	
+} Environment;
 
 struct
 {
@@ -274,9 +281,9 @@ void ADC_Converter()
 	OffADC;	
 }
 
-void UART()
+void USART()
 {
-	UCSR0B = (1 << RXEN0) | (1 << TXEN0) | (1 << RXCIE0);
+	UCSR0B = (0 << RXEN0) | (1 << TXEN0) | (0 << RXCIE0);
 	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
 	UBRR0L = 0;
 }
@@ -371,15 +378,15 @@ void DisplayPrint(void)
 	lcd_puts(addendum);
 }
 
-void UART_TransmitChar(unsigned char c)
+void USART_TransmitChar(unsigned char c)
 {
 	while (!(UCSR0A & (1<<UDRE0)));
 	UDR0 = c;
 }
 
-void UART_TransmitString(const char* s)
+void USART_TransmitString(const char* s)
 {
-	for (int i=0; s[i]; i++) UART_TransmitChar(s[i]);
+	for (int i=0; s[i]; i++) USART_TransmitChar(s[i]);
 }
 
 unsigned short UART_ReceiveHandler()
@@ -412,7 +419,7 @@ unsigned short UART_ReceiveHandler()
 		strcat(undefined, "Undefined command: \"");
 		strcat(undefined, Receive.bytes);
 		strcat(undefined, "\"");
-		UART_TransmitString(undefined);
+		USART_TransmitString(undefined);
 	}
 	
 	for (int i=0; i<RxBufferSize; i++) Receive.bytes[i] = 0;
@@ -547,6 +554,9 @@ void Initialization(enum Addendums addendum, float multiplier, unsigned int sett
 	Converter.done = 0;
 	Converter.value = 0;
 	Converter.tension = 0;
+	
+	Environment.humidity = 0;
+	Environment.temperature = 0;
 
 	LedOff;
 	PhaseOff;
@@ -689,19 +699,28 @@ void ModeDefiner()
 
 void SendValues()
 {
-	static char frequency[10], tension[10];
-	static char buffer[40];
+	static char parameter[10];
+	static unsigned short line = 0;
 	
-	for (int i=0; i<40; i++) buffer[i] = 0;
+	if (line) 
+	{
+		sprintf(parameter, "F%.1f", Measure.frequency);
+		line = 0;
+	}
+	else 
+	{
+		sprintf(parameter, "Tn%.1f", Converter.tension);
+		line++;
+	}
 	
-	sprintf(frequency, "F%.1f$", Measure.frequency);
-	sprintf(tension, "T%.1f", Converter.tension);
-	
-	strcat(buffer, frequency);
-	strcat(buffer, tension);
-	
-	UART_TransmitString(buffer); 
+	USART_TransmitString(parameter); 
 }
+
+void GetEnvironmentData()
+{
+	Environment.humidity = dht11_gethumidity();
+	Environment.temperature = dht11_gettemperature();
+};
 
 int main(void)
 {
@@ -719,7 +738,7 @@ int main(void)
      
     lcd_init(LCD_DISP_ON);
 	Timer1();
-	UART();
+	USART();
 	ADC_Converter();
 	
 	Initialization(one, 3.333, 0, 1, 40, 0.20, 0.003);
