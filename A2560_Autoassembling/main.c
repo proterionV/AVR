@@ -66,7 +66,8 @@
 #include <string.h>
 #include <math.h>
 #include <avr/eeprom.h>
-
+ 
+int rx = 0;
 const unsigned long int ACCUM_MAXIMUM = 1875000000; 
 const unsigned int		FREQUENCY_MAXIMUM = 62500;
 const unsigned short	startDelay = 10;
@@ -192,9 +193,8 @@ ISR(ADC_vect)
 	Convert.done++;	
 }
 
-ISR(USART_RX_vect)
-{
-	LedInv;
+ISR(USART0_RX_vect)
+{  
 	Receive.byte = UDR0;
 	Receive.byteReceived++;	
 }
@@ -276,7 +276,7 @@ void USART(unsigned short option)
 			UCSR0B = (1 << TXEN0);
 			break;
 		default:
-			UCSR0B = (0 << RXEN0) | (0 << TXEN0) | (0 << RXCIE0);
+			UCSR0B = (1 << RXEN0) | (0 << TXEN0) | (1 << RXCIE0);
 			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
 			UBRR0L = 0;
 			break;
@@ -344,33 +344,34 @@ void EraseUnits(int x, int y, int offset, float count)
 
 void DisplayPrint(void)
 {
-	static char frequency[10], multiplier[10], addendum[10];
+	//static char multiplier[10];
+	//static char addendum[10];
 	//static char setting[10];
 	static char tension[10];
 	
-	EraseUnits(0, 0, 1, Measure.frequency);
-	sprintf(frequency,"F %.1f",Measure.frequency);
-	lcd_gotoxy(0,0);
-	lcd_puts(frequency);
-	
-	EraseUnits(9, 0, 0, Encoder.multiplier);
-	sprintf(multiplier,"x%.3f",Encoder.multiplier);
-	lcd_gotoxy(9,0);
-	lcd_puts(multiplier);
-	
-	EraseUnits(0, 1, 1, Convert.tension);
-	sprintf(tension,"T %.1f",Convert.tension);
-	lcd_gotoxy(0,1);
+	EraseUnits(0, 0, 1, rx);
+	sprintf(tension, "%.d", rx);
+	lcd_gotoxy(0, 0);
 	lcd_puts(tension);
 	
-	//EraseUnits(0, 1, 1, DDS.setting);
-	//sprintf(setting,"%.1f",DDS.setting);
-	//lcd_gotoxy(0,1);
+	//EraseUnits(0, 0, 1, DDS.setting);
+	//sprintf(setting, "F %.1f", DDS.setting);
+	//lcd_gotoxy(0, 0);
 	//lcd_puts(setting);
-	
-	sprintf(addendum,"%.3f",Encoder.addendumValues[Encoder.addendum]);
-	lcd_gotoxy(10,1);
-	lcd_puts(addendum);
+	//
+	//EraseUnits(9, 0, 0, Encoder.multiplier);
+	//sprintf(multiplier,"x%.3f",Encoder.multiplier);
+	//lcd_gotoxy(9,0);
+	//lcd_puts(multiplier);
+	//
+	//EraseUnits(0, 1, 1, Convert.tension);
+	//sprintf(tension,"T %.1f",Convert.tension);
+	//lcd_gotoxy(0,1);
+	//lcd_puts(tension);
+	//
+	//sprintf(addendum,"%.3f",Encoder.addendumValues[Encoder.addendum]);
+	//lcd_gotoxy(10,1);
+	//lcd_puts(addendum);
 }
 
 void TransmitChar(unsigned char c)
@@ -386,7 +387,7 @@ void TransmitString(const char* s)
 
 void TransmitHandler()
 {
-	static char buffer[100];
+	static char buffer[TxBufferSize];
 	static char tension[20], frequency[20];
 	
 	memset(buffer, 0, 100);
@@ -401,35 +402,45 @@ void TransmitHandler()
 
 unsigned short ReceiveHandler()
 {
+	static unsigned short queue = 0;
 	static char bytes[RxBufferSize];
 	static char undefined[TxBufferSize];
 	static char tmp[2];
 	
 	if (Receive.byte != Terminator)
 	{
-		tmp[0] = Receive.byte;
-		strcat(bytes, tmp);
+		bytes[queue] = Receive.byte;
+		queue = (queue + 1) % RxBufferSize;
+		//tmp[0] = Receive.byte;
+		//strcat(bytes, tmp);
 		return False;
 	}
 	
-	if (!(strcasecmp(bytes, "led")))
-	{
-		LedInv;
-	}
-	else if (!(strcasecmp(bytes, "print")))
-	{
-		EraseUnits(0, 0, 0, 0);
-		lcd_gotoxy(0, 0);
-		lcd_puts(bytes);
-	}
-	else
-	{
-		memset(undefined, 0, TxBufferSize);
-		strcat(undefined, "Undefined command: \"");
-		strcat(undefined, bytes);
-		strcat(undefined, "\"");
-		TransmitString(undefined);
-	}
+	bytes[++queue] = 0;
+	
+	rx++;
+	EraseUnits(0, 1, 0, 0);
+	lcd_gotoxy(0, 1);
+	lcd_puts(bytes);
+	
+	//if (!(strcasecmp(bytes, "led")))
+	//{
+		//LedInv;
+	//}
+	//else if (!(strcasecmp(bytes, "print")))
+	//{
+		//EraseUnits(0, 0, 0, 0);
+		//lcd_gotoxy(0, 0);
+		//lcd_puts(bytes);
+	//}
+	//else
+	//{
+		//memset(undefined, 0, TxBufferSize);
+		//strcat(undefined, "Undefined command: \"");
+		//strcat(undefined, bytes);
+		//strcat(undefined, "\"");
+		//TransmitString(undefined);
+	//}
 	
 	memset(bytes, 0, RxBufferSize);
 	return True;
@@ -694,10 +705,10 @@ int main(void)
 	
 	lcd_init(LCD_DISP_ON);
 	USART(Init);
-	Converter(Init);
-    Initialization(); 
+	//Converter(Init);
+	//Initialization();
+	//Reset();
 	Timer1();
-	Reset();
     sei();
 	
     while(1)
@@ -707,23 +718,23 @@ int main(void)
 			ReceiveHandler();
 			Receive.byteReceived = 0;
 		}
-		
+
 		//ModeDefiner();
 		//EncoderHandler();
 		//
-        //if (Measure.done)
-        //{
-	        //TCNT3 = Calculation();
-	        //SetOptionDDS(0);
-	        //Measure.done = 0;
-        //}
-     //
+		//if (Measure.done)
+		//{
+			//TCNT3 = Calculation();
+			//SetOptionDDS(0);
+			//Measure.done = 0;
+		//}
+		//
 		//if (Convert.done)
 		//{
 			//Convert.tension = (unsigned)FilterMovingAverageTension(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
 			//Convert.done = 0;
 		//}
-	 //
+		//
 		//if (Enable && MainTimer.ms200transmit)
 		//{
 			//TransmitHandler();
@@ -732,17 +743,17 @@ int main(void)
 	 
         if (MainTimer.ms1000 > 0)
         {   
-			//DisplayPrint();
+			DisplayPrint();
 //
-			//if (MainTimer.flagStart && (MainTimer.delayCounter < startDelay)) 
+			//if (MainTimer.flagStart && (MainTimer.delayCounter < startDelay))
 			//{
 				//LedInv;
 				//MainTimer.delayCounter++;
 			//}
 			//
-			//if ((MainTimer.delayCounter >= startDelay) && !Phase) 
+			//if ((MainTimer.delayCounter >= startDelay) && !Phase)
 			//{
-				//LedOn;				
+				//LedOn;
 				//PhaseOn;
 			//}
 			
