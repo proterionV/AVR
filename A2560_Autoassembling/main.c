@@ -194,8 +194,9 @@ ISR(ADC_vect)
 
 ISR(USART_RX_vect)
 {
+	LedInv;
 	Receive.byte = UDR0;
-	Receive.byteReceived++;
+	Receive.byteReceived++;	
 }
 
 void Timer1(void)
@@ -269,10 +270,10 @@ void USART(unsigned short option)
 	switch (option)
 	{
 		case 0:
-			UCSR0B = (0 << RXEN0) | (0 << TXEN0) | (0 << RXCIE0);
+			UCSR0B = (0 << TXEN0);
 			break;
 		case 1:
-			UCSR0B = (1 << RXEN0) | (1 << TXEN0) | (1 << RXCIE0);
+			UCSR0B = (1 << TXEN0);
 			break;
 		default:
 			UCSR0B = (0 << RXEN0) | (0 << TXEN0) | (0 << RXCIE0);
@@ -388,7 +389,7 @@ void TransmitHandler()
 	static char buffer[100];
 	static char tension[20], frequency[20];
 	
-	memset(buffer,0,100);
+	memset(buffer, 0, 100);
 	
 	sprintf(frequency, "F%.1f$", Measure.frequency);
 	sprintf(tension, "Tn%.1f", Convert.tension);
@@ -396,38 +397,20 @@ void TransmitHandler()
 	strcat(buffer, tension);
 	
 	TransmitString(buffer);
-	
-	//static char parameter[10];
-	//static unsigned short line = 0;
-	//
-	//if (line)
-	//{
-		//sprintf(parameter, "F%.1f", Measure.frequency);
-		//line = 0;
-	//}
-	//else
-	//{
-		//sprintf(parameter, "Tn%.1f", Convert.tension);
-		//line++;
-	//}
-	//
-	//TransmitString(parameter);
 }
 
 unsigned short ReceiveHandler()
 {
-	static unsigned short queue = 0;
 	static char bytes[RxBufferSize];
-	static char undefined[RxBufferSize];
+	static char undefined[TxBufferSize];
+	static char tmp[2];
 	
 	if (Receive.byte != Terminator)
 	{
-		bytes[queue] = Receive.byte;
-		queue = (queue + 1) % RxBufferSize;
+		tmp[0] = Receive.byte;
+		strcat(bytes, tmp);
 		return False;
 	}
-	
-	bytes[++queue] = 0;
 	
 	if (!(strcasecmp(bytes, "led")))
 	{
@@ -441,15 +424,14 @@ unsigned short ReceiveHandler()
 	}
 	else
 	{
-		for (int i=0; i<RxBufferSize; i++) undefined[0] = 0;
+		memset(undefined, 0, TxBufferSize);
 		strcat(undefined, "Undefined command: \"");
 		strcat(undefined, bytes);
 		strcat(undefined, "\"");
 		TransmitString(undefined);
 	}
 	
-	for (int i=0; i<RxBufferSize; i++) bytes[i] = 0;
-	queue = 0;
+	memset(bytes, 0, RxBufferSize);
 	return True;
 }
 
@@ -720,44 +702,49 @@ int main(void)
 	
     while(1)
     {   
-		ModeDefiner();
-		EncoderHandler();
-		ReceiveHandler();
+		if (Receive.byteReceived)
+		{
+			ReceiveHandler();
+			Receive.byteReceived = 0;
+		}
 		
-        if (Measure.done)
-        {
-	        TCNT3 = Calculation();
-	        SetOptionDDS(0);
-	        Measure.done = 0;
-        }
-     
-		if (Convert.done)
-		{
-			Convert.tension = (unsigned)FilterMovingAverageTension(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
-			Convert.done = 0;
-		}
-	 
-		if (Enable && MainTimer.ms200transmit)
-		{
-			TransmitHandler();
-			MainTimer.ms200transmit = 0;
-		}
+		//ModeDefiner();
+		//EncoderHandler();
+		//
+        //if (Measure.done)
+        //{
+	        //TCNT3 = Calculation();
+	        //SetOptionDDS(0);
+	        //Measure.done = 0;
+        //}
+     //
+		//if (Convert.done)
+		//{
+			//Convert.tension = (unsigned)FilterMovingAverageTension(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
+			//Convert.done = 0;
+		//}
+	 //
+		//if (Enable && MainTimer.ms200transmit)
+		//{
+			//TransmitHandler();
+			//MainTimer.ms200transmit = 0;
+		//}
 	 
         if (MainTimer.ms1000 > 0)
         {   
-			DisplayPrint();
-
-			if (MainTimer.flagStart && (MainTimer.delayCounter < startDelay)) 
-			{
-				LedInv;
-				MainTimer.delayCounter++;
-			}
-			
-			if ((MainTimer.delayCounter >= startDelay) && !Phase) 
-			{
-				LedOn;				
-				PhaseOn;
-			}
+			//DisplayPrint();
+//
+			//if (MainTimer.flagStart && (MainTimer.delayCounter < startDelay)) 
+			//{
+				//LedInv;
+				//MainTimer.delayCounter++;
+			//}
+			//
+			//if ((MainTimer.delayCounter >= startDelay) && !Phase) 
+			//{
+				//LedOn;				
+				//PhaseOn;
+			//}
 			
 			MainTimer.ms1000 = 0;
 		}
