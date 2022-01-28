@@ -381,7 +381,26 @@ void USART_TransmitString(const char* s)
 	for (int i=0; s[i]; i++) USART_TransmitChar(s[i]);
 }
 
-unsigned short UART_ReceiveHandler()
+void TransmitHandler()
+{
+	static char parameter[10];
+	static unsigned short line = 0;
+	
+	if (line)
+	{
+		sprintf(parameter, "F%.1f", Measure.frequency);
+		line = 0;
+	}
+	else
+	{
+		sprintf(parameter, "Tn%.1f", Convert.tension);
+		line++;
+	}
+	
+	USART_TransmitString(parameter);
+}
+
+unsigned short ReceiveHandler()
 {
 	static unsigned short queue = 0;
 	static char bytes[RxBufferSize];
@@ -663,25 +682,6 @@ void ModeDefiner()
 	}
 }
 
-void SendValues()
-{
-	static char parameter[10];
-	static unsigned short line = 0;
-	
-	if (line) 
-	{
-		sprintf(parameter, "F%.1f", Measure.frequency);
-		line = 0;
-	}
-	else 
-	{
-		sprintf(parameter, "Tn%.1f", Convert.tension);
-		line++;
-	}
-	
-	USART_TransmitString(parameter); 
-}
-
 int main(void)
 {
     DDRA = 0xFF;                  
@@ -724,7 +724,7 @@ int main(void)
 	 
 		if (Enable && MainTimer.ms200transmit)
 		{
-			SendValues();
+			TransmitHandler();
 			MainTimer.ms200transmit = 0;
 		}
 	 

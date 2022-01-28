@@ -40,6 +40,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "uart", "uart", "{6302972F-6
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Notes", "Notes", "{6A600507-4AF9-40BD-A275-EE66B8AFD88B}"
+	ProjectSection(SolutionItems) = preProject
+		MC Studio settings.c = MC Studio settings.c
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
