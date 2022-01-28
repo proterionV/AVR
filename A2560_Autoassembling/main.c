@@ -130,7 +130,7 @@ ISR(TIMER1_OVF_vect)
 	TCNT1 = 62411; // 62411 - 200 ms 
 	MainTimer.ms200++;
 	MainTimer.ms200transmit++;
-	ADCSRA |= (1<<ADSC);
+	if (Enable) ADCSRA |= (1<<ADSC);
 	
 	if (MainTimer.ms200 >= 5 || MainTimer.ms40 >= 25)
 	{
@@ -385,21 +385,33 @@ void TransmitString(const char* s)
 
 void TransmitHandler()
 {
-	static char parameter[10];
-	static unsigned short line = 0;
+	static char buffer[100];
+	static char tension[20], frequency[20];
 	
-	if (line)
-	{
-		sprintf(parameter, "F%.1f", Measure.frequency);
-		line = 0;
-	}
-	else
-	{
-		sprintf(parameter, "Tn%.1f", Convert.tension);
-		line++;
-	}
+	memset(buffer,0,100);
 	
-	TransmitString(parameter);
+	sprintf(frequency, "F%.1f$", Measure.frequency);
+	sprintf(tension, "Tn%.1f", Convert.tension);
+	strcat(buffer, frequency);
+	strcat(buffer, tension);
+	
+	TransmitString(buffer);
+	
+	//static char parameter[10];
+	//static unsigned short line = 0;
+	//
+	//if (line)
+	//{
+		//sprintf(parameter, "F%.1f", Measure.frequency);
+		//line = 0;
+	//}
+	//else
+	//{
+		//sprintf(parameter, "Tn%.1f", Convert.tension);
+		//line++;
+	//}
+	//
+	//TransmitString(parameter);
 }
 
 unsigned short ReceiveHandler()
@@ -710,6 +722,7 @@ int main(void)
     {   
 		ModeDefiner();
 		EncoderHandler();
+		ReceiveHandler();
 		
         if (Measure.done)
         {
