@@ -72,14 +72,14 @@ const unsigned int		FREQUENCY_MAXIMUM = 62500;
 const unsigned short	startDelay = 10;
 const unsigned short	stopDelay = 5;
 
-volatile struct 
+volatile struct
 {
 	unsigned int ms40, ms200transmit, ms200, ms1000;
 	unsigned int delayCounter;
 	unsigned int flagStart, flagStop;
 } MainTimer;
 
-volatile struct 
+volatile struct
 {
     unsigned short forward;
     unsigned short backward;
@@ -95,7 +95,7 @@ volatile struct
     } addendum;  
 } Encoder;
 
-volatile struct 
+volatile struct
 {
     unsigned long int ticksCurrent,ticksPrevious,ticks;
     unsigned long int overflows,ticksBuffer;      
@@ -103,7 +103,7 @@ volatile struct
     float period, frequency, bufFrequency, pulseCount;	
 } Measure;
 
-volatile struct 
+volatile struct
 {
     float setting;
     unsigned long int accum, increment, counter;
@@ -130,6 +130,7 @@ ISR(TIMER1_OVF_vect)
 	TCNT1 = 62411; // 62411 - 200 ms 
 	MainTimer.ms200++;
 	MainTimer.ms200transmit++;
+	ADCSRA |= (1<<ADSC);
 	
 	if (MainTimer.ms200 >= 5 || MainTimer.ms40 >= 25)
 	{
@@ -186,8 +187,9 @@ ISR(TIMER5_OVF_vect)
 
 ISR(ADC_vect)
 {
+	ADCSRA |= (0<<ADSC);
 	Convert.value = ((signed)ADCW-21);
-	Convert.done++;;	
+	Convert.done++;	
 }
 
 ISR(USART_RX_vect)
@@ -370,15 +372,15 @@ void DisplayPrint(void)
 	lcd_puts(addendum);
 }
 
-void USART_TransmitChar(unsigned char c)
+void TransmitChar(unsigned char c)
 {
 	while (!(UCSR0A & (1<<UDRE0)));
 	UDR0 = c;
 }
 
-void USART_TransmitString(const char* s)
+void TransmitString(const char* s)
 {
-	for (int i=0; s[i]; i++) USART_TransmitChar(s[i]);
+	for (int i=0; s[i]; i++) TransmitChar(s[i]);
 }
 
 void TransmitHandler()
@@ -397,7 +399,7 @@ void TransmitHandler()
 		line++;
 	}
 	
-	USART_TransmitString(parameter);
+	TransmitString(parameter);
 }
 
 unsigned short ReceiveHandler()
@@ -431,7 +433,7 @@ unsigned short ReceiveHandler()
 		strcat(undefined, "Undefined command: \"");
 		strcat(undefined, bytes);
 		strcat(undefined, "\"");
-		USART_TransmitString(undefined);
+		TransmitString(undefined);
 	}
 	
 	for (int i=0; i<RxBufferSize; i++) bytes[i] = 0;
@@ -718,7 +720,7 @@ int main(void)
      
 		if (Convert.done)
 		{
-			Convert.tension = FilterMovingAverageTension(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
+			Convert.tension = (unsigned)FilterMovingAverageTension(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
 			Convert.done = 0;
 		}
 	 
