@@ -12,14 +12,7 @@
 
 */
 
-#define F_CPU    16000000UL
-
-#define True	 1
-#define False	 0
-
-#define Init	 2
-#define On		 1
-#define Off		 0
+#define F_CPU    16000000L
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
@@ -46,6 +39,19 @@
 #define PhaseOff PORTB &= (0<<2)
 #define PhaseInv PORTB ^= (1<<2)      
 
+#define True	 1
+#define False	 0
+
+#define Init	 2
+#define On		 1
+#define Off		 0
+
+#define	Tension		1
+#define Frequency 	0
+
+#define Forward	    1
+#define Reporcial 	0
+
 #define FrequencyArraySize 150
 #define TensionArraySize   30
 #define RxBufferSize 100
@@ -71,13 +77,12 @@
 const unsigned long int ACCUM_MAXIMUM = 1875000000; 
 const unsigned int		FREQUENCY_MAXIMUM = 62500;
 const unsigned short	startDelay = 10;
-const unsigned short	stopDelay = 5;
+const unsigned short	stopDelay = 10;
 
 volatile struct
 {
 	unsigned int ms40, ms200transmit, ms200, ms1000;
-	unsigned int delayCounter;
-	unsigned int flagStart, flagStop;
+	unsigned short counter, start, stop, breaking;
 } MainTimer;
 
 volatile struct
@@ -143,7 +148,6 @@ ISR(TIMER1_OVF_vect)
 
 ISR(TIMER3_OVF_vect)
 {
-	LedInv;
 	DDS.setting = 0;
 	DDS.increment = 0;
 	Measure.frequency = 0;
@@ -151,7 +155,7 @@ ISR(TIMER3_OVF_vect)
 
 ISR(TIMER4_OVF_vect) 
 {
-	if (!Measure.method) return; 
+	if (Measure.method == Forward) return; 
     Measure.overflows++;
 	
 	if (Measure.overflows >= 4) 
@@ -163,7 +167,7 @@ ISR(TIMER4_OVF_vect)
 
 ISR(TIMER4_CAPT_vect)
 {  
-	if (Measure.method) 
+	if (Measure.method == Reporcial) 
 	{
 		Measure.ticksBuffer = ICR4;
 		Measure.done++;
@@ -198,6 +202,69 @@ ISR(USART0_RX_vect)
 	Receive.byte = UDR0;
 	Receive.byteReceived++;	
 }
+
+ float FilterMovingAverageFrequency(float value, unsigned short reset)
+ {
+	 static float values[FrequencyArraySize];
+	 static unsigned short index = 0;
+	 static float result;
+	 
+	 if (reset)
+	 {
+		 for (int i=0; i < FrequencyArraySize; i++) values[i] = 0;
+		 result = 0;
+		 index = 0;
+		 return 0;
+	 }
+	 
+	 result += value - values[index];
+	 values[index] = value;
+	 index = (index + 1) % FrequencyArraySize;
+	 
+	 return result/FrequencyArraySize;
+ }
+
+ float FilterMovingAverageTension(float value, unsigned short reset)
+ {
+	 static float values[TensionArraySize];
+	 static unsigned short index = 0;
+	 static float result;
+	 
+	 if (reset)
+	 {
+		 for (int i=0; i < TensionArraySize; i++) values[i] = 0;
+		 result = 0;
+		 index = 0;
+		 return 0;
+	 }
+	 
+	 result += value - values[index];
+	 values[index] = value;
+	 index = (index + 1) % TensionArraySize;
+	 
+	 return result/TensionArraySize;
+ }
+
+ float FilterKalman(float value, unsigned short reset)
+ {
+	 static float measureVariation = 40, estimateVariation = 0.20, speedVariation = 0.003;
+	 static float CurrentEstimate = 0;
+	 static float LastEstimate = 0;
+	 static float Gain = 0;
+	 
+	 if (reset)
+	 {
+		 CurrentEstimate = 0;
+		 LastEstimate = 0;
+		 Gain = 0;
+	 }
+	 
+	 Gain = estimateVariation / (estimateVariation + measureVariation);
+	 CurrentEstimate = LastEstimate + Gain * (value - LastEstimate);
+	 estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
+	 LastEstimate = CurrentEstimate;
+	 return CurrentEstimate;
+ }
 
 void Timer1(void)
 {
@@ -276,7 +343,7 @@ void USART(unsigned short option)
 			UCSR0B |= (1 << TXEN0);
 			break;
 		default:
-			UCSR0B = (1 << RXEN0) | (0 << TXEN0) | (1 << RXCIE0);
+			UCSR0B = (0 << RXEN0) | (0 << TXEN0) | (0 << RXCIE0);
 			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
 			UBRR0L = 0;
 			break;
@@ -380,14 +447,14 @@ void TransmitString(const char* s)
 	for (int i=0; s[i]; i++) TransmitChar(s[i]);
 }
 
-void TransmitHandler()
+void Transmitting()
 {
 	static char buffer[TxBufferSize];
 	static char tension[20], frequency[20];
 	
 	memset(buffer, 0, TxBufferSize);
 	
-	sprintf(frequency, "F%.1f$", Measure.frequency);
+	sprintf(frequency, "F%.1f$", DDS.setting);
 	sprintf(tension, "Tn%.1f", Convert.tension);
 	strcat(buffer, frequency);
 	strcat(buffer, tension);
@@ -395,7 +462,7 @@ void TransmitHandler()
 	TransmitString(buffer);
 }
 
-void ReceiveHandler()
+void Receiving()
 {	
 	static char buffer[RxBufferSize];
 	static unsigned int index = 0;
@@ -493,78 +560,56 @@ void EncoderHandler(void)
     } 
 }
 
-float FilterMovingAverageFrequency(float value, unsigned short reset)
-{
-	static float values[FrequencyArraySize];
-	static unsigned short index = 0;
-	static float result;
-	
-	if (reset)
-	{
-		for (int i=0; i < FrequencyArraySize; i++) values[i] = 0;
-		result = 0;
-		index = 0;
-		return 0;
-	}
-	
-	result += value - values[index];
-	values[index] = value;
-	index = (index + 1) % FrequencyArraySize;
-	
-	return result/FrequencyArraySize;		
-}
-
-float FilterMovingAverageTension(float value, unsigned short reset)
-{
-	static float values[TensionArraySize];
-	static unsigned short index = 0;
-	static float result;
-	
-	if (reset)
-	{
-		for (int i=0; i < TensionArraySize; i++) values[i] = 0;
-		result = 0;
-		index = 0;
-		return 0;
-	}
-	
-	result += value - values[index];
-	values[index] = value;
-	index = (index + 1) % TensionArraySize;
-	
-	return result/TensionArraySize;
-}
-
-float FilterKalman(float value, unsigned short reset)
-{
-	static float measureVariation = 40, estimateVariation = 0.20, speedVariation = 0.003;
-	static float CurrentEstimate = 0;
-	static float LastEstimate = 0;
-	static float Gain = 0;
-	
-	if (reset)
-	{
-		CurrentEstimate = 0;
-		LastEstimate = 0;
-		Gain = 0;
-	}
-	
-	Gain = estimateVariation / (estimateVariation + measureVariation);
-	CurrentEstimate = LastEstimate + Gain * (value - LastEstimate);
-	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
-	LastEstimate = CurrentEstimate;
-	return CurrentEstimate;
-}
-
-void Reset()
+void Initialization(unsigned short Method, enum Addendums addendum)
 {
 	LedOff;
 	PhaseOff;
 	
-	Timer3(Off);
-	Timer4(Off);
-	Timer5(Off);
+	Measure.method = Method;
 	
+	MainTimer.ms200 = 0;
+	MainTimer.ms1000 = 0;
+	MainTimer.start = 0;
+	MainTimer.stop = 0;
+	MainTimer.counter = 0;
+	MainTimer.breaking = 0;
+	
+	Encoder.addendum = addendum;
+	Encoder.addendumValues[0] = 1;
+	Encoder.addendumValues[1] = 0.1;
+	Encoder.addendumValues[2] = 0.01;
+	Encoder.addendumValues[3] = 0.001;
+	Encoder.multiplier = eeprom_read_float((float*)1);
+}
+
+void Calculation(unsigned short parameter)
+{
+	if (parameter == Tension)
+	{
+		Convert.tension = FilterMovingAverageTension(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
+		return;
+	}
+	
+	if (Measure.method == Reporcial)
+	{
+		Measure.ticksCurrent = ((Measure.overflows * 65536L) + Measure.ticksBuffer) - Measure.ticksPrevious;
+		Measure.ticksPrevious = Measure.ticksBuffer;
+		Measure.period = Measure.ticksCurrent*0.000004;
+		Measure.bufFrequency = Measure.period >= 1 ? 0 : Measure.period <= 0 ? 0 : 1.f/Measure.period;
+		Measure.frequency = FilterKalman(Measure.zero > 0 ? 0 : Measure.bufFrequency < 1 ? Measure.frequency : Measure.bufFrequency, 0);
+		Measure.overflows = 0;
+		Measure.zero = 0;
+		
+		return; // return 65536 - (Measure.ticksCurrent + 10); for generation during got period (timer 3 must be On)
+	}
+	
+	Measure.frequency = FilterMovingAverageFrequency((float)Measure.pulseCount*5.f, 0);
+	Measure.pulseCount = 0;
+	return;	 // 0;
+}
+
+void Reset()
+{
 	FilterMovingAverageFrequency(0, True);
 	FilterMovingAverageTension(0, True);
 	FilterKalman(0, True);
@@ -590,68 +635,56 @@ void Reset()
 	Convert.done = 0;
 	Convert.value = 0;
 	Convert.tension = 0;
-	
-	MainTimer.delayCounter = 0;
-	MainTimer.flagStart = 0;
-}
-
-void Initialization()
-{
-	MainTimer.ms200 = 0;
-	MainTimer.ms1000 = 0;
-	MainTimer.flagStart = 0;
-	MainTimer.flagStop = 0;
-	
-	Encoder.addendum = 3;
-	Encoder.addendumValues[0] = 1;
-	Encoder.addendumValues[1] = 0.1;
-	Encoder.addendumValues[2] = 0.01;
-	Encoder.addendumValues[3] = 0.001;
-	Encoder.multiplier = eeprom_read_float((float*)1);
-}
-
-unsigned int Calculation(void)
-{
-	if (Measure.method)
-	{
-		Measure.ticksCurrent = ((Measure.overflows * 65536L) + Measure.ticksBuffer) - Measure.ticksPrevious;
-		Measure.ticksPrevious = Measure.ticksBuffer;
-		Measure.period = Measure.ticksCurrent*0.000004;
-		Measure.bufFrequency = Measure.period >= 1 ? 0 : Measure.period <= 0 ? 0 : 1.f/Measure.period;
-		Measure.frequency = FilterKalman(Measure.zero > 0 ? 0 : Measure.bufFrequency < 1 ? Measure.frequency : Measure.bufFrequency, 0);
-		Measure.overflows = 0;
-		Measure.zero = 0;
-		
-		return 0; //return 65536 - (Measure.ticksCurrent + 10); for generation during got period (timer 3 must be On)
-	}
-	
-	Measure.frequency = FilterMovingAverageFrequency((float)Measure.pulseCount*5.f, 0);
-	Measure.pulseCount = 0;
-	return 0;
 }
 
 void ModeDefiner()
 {
-	if (Enable && !MainTimer.flagStart) 
+	if (Enable && !MainTimer.start) 
 	{
-		TCNT1 = 62411;
-		MainTimer.ms200 = 0;
-		MainTimer.delayCounter = 0;
-		MainTimer.flagStop = 0;	
-		MainTimer.flagStart++;
+		LedOn;
+		PhaseOn;
 		
 		Timer4(On);
 		Timer5(On);
 		USART(On);
-		Converter(On);	
+		Converter(On);
+		
+		TCNT1 = 62411;
+		MainTimer.ms200 = 0;
+		MainTimer.counter = 0;
+		MainTimer.stop = 0;	
+		MainTimer.start++;	
 	}
 	
-	if (Disable && !MainTimer.flagStop)
+	if (Disable && !MainTimer.stop)
 	{
+		LedOff;
+		PhaseOff;
+		
 		Reset();
+		Timer4(Off);
+		Timer5(Off);
 		USART(Off);
-		Converter(Off);	
-		MainTimer.flagStop++;
+		Converter(Off);
+		
+		MainTimer.stop++;
+		MainTimer.counter = 0;
+		MainTimer.start = 0;
+	}
+}
+
+void ModeDelayer()
+{
+	if (MainTimer.start && (MainTimer.counter < startDelay));
+	{
+		LedInv;
+		MainTimer.counter++;
+	}
+
+	if ((MainTimer.counter >= startDelay) && !Phase)
+	{
+		LedOn;
+		PhaseOn;
 	}
 }
 
@@ -672,7 +705,7 @@ int main(void)
 	lcd_init(LCD_DISP_ON);
 	USART(Init);
 	Converter(Init);
-	Initialization();
+	Initialization(Reporcial, thousand);
 	Reset();
 	Timer1();
     sei();
@@ -681,49 +714,30 @@ int main(void)
     {   
 		ModeDefiner();
 		EncoderHandler();
-		
-		if (Receive.byteReceived)
+
+		if (MainTimer.ms1000 > 0)
 		{
-			ReceiveHandler();
-			Receive.byteReceived = 0;
+			DisplayPrint();
+			MainTimer.ms1000 = 0;
 		}
 
 		if (Measure.done)
 		{
-			TCNT3 = Calculation();
+			Calculation(Frequency);
 			SetOptionDDS(0);
 			Measure.done = 0;
 		}
-		
+
 		if (Convert.done)
 		{
-			Convert.tension = (unsigned)FilterMovingAverageTension(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
+			Calculation(Tension);
 			Convert.done = 0;
 		}
-		
+
 		if (Enable && MainTimer.ms200transmit)
 		{
-			TransmitHandler();
+			Transmitting();
 			MainTimer.ms200transmit = 0;
-		}
-	 
-        if (MainTimer.ms1000 > 0)
-        {   
-			DisplayPrint();
-
-			if (MainTimer.flagStart && (MainTimer.delayCounter < startDelay))
-			{
-				LedInv;
-				MainTimer.delayCounter++;
-			}
-
-			if ((MainTimer.delayCounter >= startDelay) && !Phase)
-			{
-				LedOn;
-				PhaseOn;
-			}
-			
-			MainTimer.ms1000 = 0;
 		}
     }
 }

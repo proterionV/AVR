@@ -44,6 +44,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Notes", "Notes", "{6A600507
 		MC Studio settings.c = MC Studio settings.c
 	EndProjectSection
 EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Autoassembling", "A328P_Autoassembling\A328P_Autoassembling.cproj", "{73889FEE-863F-4ED9-A8A3-CAB8819A58A6}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
@@ -58,6 +60,10 @@ Global
 		{7B1D0278-B783-4DEF-A375-B0CCB805EC3C}.Debug|AVR.Build.0 = Debug|AVR
 		{7B1D0278-B783-4DEF-A375-B0CCB805EC3C}.Release|AVR.ActiveCfg = Release|AVR
 		{7B1D0278-B783-4DEF-A375-B0CCB805EC3C}.Release|AVR.Build.0 = Release|AVR
+		{73889FEE-863F-4ED9-A8A3-CAB8819A58A6}.Debug|AVR.ActiveCfg = Debug|AVR
+		{73889FEE-863F-4ED9-A8A3-CAB8819A58A6}.Debug|AVR.Build.0 = Debug|AVR
+		{73889FEE-863F-4ED9-A8A3-CAB8819A58A6}.Release|AVR.ActiveCfg = Release|AVR
+		{73889FEE-863F-4ED9-A8A3-CAB8819A58A6}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
