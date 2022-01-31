@@ -203,7 +203,7 @@ ISR(USART0_RX_vect)
 	Receive.byteReceived++;	
 }
 
- float FilterMovingAverageFrequency(float value, unsigned short reset)
+float FilterMovingAverageFrequency(float value, unsigned short reset)
  {
 	 static float values[FrequencyArraySize];
 	 static unsigned short index = 0;
@@ -224,7 +224,7 @@ ISR(USART0_RX_vect)
 	 return result/FrequencyArraySize;
  }
 
- float FilterMovingAverageTension(float value, unsigned short reset)
+float FilterMovingAverageTension(float value, unsigned short reset)
  {
 	 static float values[TensionArraySize];
 	 static unsigned short index = 0;
@@ -245,7 +245,7 @@ ISR(USART0_RX_vect)
 	 return result/TensionArraySize;
  }
 
- float FilterKalman(float value, unsigned short reset)
+float FilterKalman(float value, unsigned short reset)
  {
 	 static float measureVariation = 40, estimateVariation = 0.20, speedVariation = 0.003;
 	 static float CurrentEstimate = 0;
@@ -661,11 +661,11 @@ void ModeDefiner()
 		LedOff;
 		PhaseOff;
 		
-		Reset();
 		Timer4(Off);
 		Timer5(Off);
 		USART(Off);
 		Converter(Off);
+		Reset();
 		
 		MainTimer.stop++;
 		MainTimer.counter = 0;

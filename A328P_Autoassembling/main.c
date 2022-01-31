@@ -12,20 +12,20 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= (0<<BIT))
 
-#define Led     Check(PORTB, 7)
-#define LedOn   High(PORTB, 7)
-#define LedOff  Low(PORTB, 7)
-#define LedInv  Inv(PORTB, 7)
+#define Led     Check(PORTB, 5)
+#define LedOn   High(PORTB, 5)
+#define LedOff  Low(PORTB, 5)
+#define LedInv  Inv(PORTB, 5)
 
-#define Right    (~PINC & (1<<0))
-#define Left     (~PINC & (1<<1))
-#define Enter    (PINC & (1<<2))
+#define Right    (~PINC & (1<<1))
+#define Left     (~PINC & (1<<2))
+#define Enter    (PINC & (1<<3))
 
 #define Enable	 (!(PINL & (1<<2)))
 #define Disable	 (PINL & (1<<2))
 
-#define DDSOut	 (PORTB & (1<<0))
-#define DDSOutInv PORTB ^= (1<<0);
+#define DDSOut	  (PORTB & (1<<1))
+#define DDSOutInv Inv(PORTB, 1)
 
 #define Phase    (PORTB & (1<<2))
 #define PhaseOn  PORTB |= (1<<2)
@@ -54,6 +54,7 @@
 #define FillCell    0xFF
 #define Terminator  '$'
 #define Arrow		'>'
+#define Eraser		' '
 #define StringEnd	'\0'
 
 #include <xc.h>
@@ -68,6 +69,9 @@
 #include <avr/eeprom.h>
 #include "lcd/lcdpcf8574/lcdpcf8574.h"
 
+const unsigned long int ACCUM_MAXIMUM = 1875000000;
+const unsigned int		FREQUENCY_MAXIMUM = 62500;
+
 volatile struct
 {
 	unsigned int ms200, ms1000;
@@ -76,15 +80,15 @@ volatile struct
 struct
 {
 	unsigned short X,Y;
-	unsigned short arrowPosition;
-	unsigned short mainActive,manualActive,autoActive,parametersActive;
+	unsigned short arrowPosition, reset;
+	unsigned short manualActive, autoActive, mainActive;
 	char modeNames[3][10];
 
 	enum Modes
 	{
-		Main,
 		Manual,
-		Auto
+		Auto,
+		Main
 	} mode;
 } Menu;
 
@@ -93,6 +97,7 @@ struct
 	unsigned short forward;
 	unsigned short backward;
 	unsigned short button;
+	unsigned short addendumChanged;
 	float multiplier;
 	float addendumValues[4];
 	enum Addendums
@@ -103,6 +108,12 @@ struct
 		thousand
 	} addendum;
 } Encoder;
+
+volatile struct
+{
+	float setting;
+	unsigned long int accum, increment, counter;
+} DDS;
 
 ISR(TIMER1_OVF_vect)
 {
@@ -116,6 +127,19 @@ ISR(TIMER1_OVF_vect)
 	}	
 }
 
+ISR(TIMER2_OVF_vect)
+{
+	TCNT2 = 254;
+	
+	DDS.accum += DDS.increment;
+	
+	if (DDS.accum >= ACCUM_MAXIMUM)
+	{
+		DDSOutInv;
+		DDS.accum -= ACCUM_MAXIMUM;
+	}
+}
+
 void Timer1()
 {
 	TCCR1B = (1 << CS12)|(0 << CS11)|(1 << CS10);
@@ -123,27 +147,187 @@ void Timer1()
 	TCNT1 = 62411;		
 }
 
+void Timer2(unsigned int enable)
+{
+	if (enable)
+	{
+		TCCR2B = (1<<CS22) | (0<<CS21) | (0<<CS20); /// 256 bit scaler 
+		TIMSK2 = (1<<TOIE2);
+		return;
+	}
+	
+	TCCR2B = (0<<CS22) | (0<<CS21) | (0<<CS20); 
+	TIMSK2 = (0<<TOIE2);
+	TCNT2 = 0;	
+}
+
+float GetAddendum(void)
+{
+	static unsigned int divider = 0;
+	divider = DDS.setting < 11000 ? 10000 : 100000;
+	return (((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider;
+}
+
+void SetOptionDDS(short direction)
+{
+	if (direction > 0) DDS.setting += DDS.setting + Encoder.addendumValues[Encoder.addendum] <= FREQUENCY_MAXIMUM ? Encoder.addendumValues[Encoder.addendum] : 0;
+	if (direction < 0) DDS.setting -= DDS.setting - Encoder.addendumValues[Encoder.addendum] < 0 ? DDS.setting : Encoder.addendumValues[Encoder.addendum];  
+	DDS.increment = GetAddendum();
+}
+
+void EncoderHandler(void)
+{
+	if (Right) Encoder.forward = 0;
+	{
+		if (!Right) Encoder.forward++;
+		{
+			if (Encoder.forward == 1 && Left)
+			{
+				SetOptionDDS(1);
+				return;
+			}
+		}
+	}
+	
+	if (Left) Encoder.backward = 0;
+	{
+		if (!Left) Encoder.backward++;
+		{
+			if (Encoder.backward == 1 && Right)
+			{
+				SetOptionDDS(-1);
+				return;
+			}
+		}
+	}
+	
+	if (Enter) Encoder.button = 0;
+	{
+		if (!Enter) Encoder.button++;
+		{
+			if (Encoder.button == 1)
+			{
+				switch(Encoder.addendum)
+				{
+					case one:
+						Encoder.addendum = ten;
+						break;
+					case ten:
+						Encoder.addendum = hundred;
+						break;
+					case hundred:
+						Encoder.addendum = thousand;
+						break;
+					default:
+						Encoder.addendum = one;
+						break;
+				}
+				Encoder.addendumChanged = True;
+			}
+		}
+	}
+}
+
+void EraseUnits(int x, int y, int offset, float count)
+{
+	char eraser = 32;
+	
+	if (count<100000 || count < 0)
+	{
+		lcd_gotoxy(x+offset+5,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<10000)
+	{
+		lcd_gotoxy(x+offset+4,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<1000)
+	{
+		lcd_gotoxy(x+offset+3,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<100)
+	{
+		lcd_gotoxy(x+offset+2,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<10)
+	{
+		lcd_gotoxy(x+offset+1,y);
+		lcd_putc(eraser);
+	}
+}
+
 void DisplayPrint()
 {
-	
+	static char setting[20], addendum[10];
+
+	if (Menu.mode == Manual)
+	{
+		sprintf(setting, "%.1f Hz", DDS.setting);
+		EraseUnits(0, 0, 3, DDS.setting);
+		lcd_gotoxy(0, 0);
+		lcd_puts(setting);
+		
+		if (Encoder.addendumChanged)
+		{
+			sprintf(addendum, "x%.f", Encoder.addendumValues[Encoder.addendum]);
+			EraseUnits(0, 1, 0, Encoder.addendumValues[Encoder.addendum]);
+			lcd_gotoxy(0, 1);
+			lcd_puts(addendum);
+			Encoder.addendumChanged = False;
+		}
+	}
 }
 
 void ManualHandle()
 {
-	
+	EncoderHandler();
+
+	if (Menu.manualActive) return;
+	Encoder.addendum = one;
+	Encoder.addendumValues[one] = 1;
+	Encoder.addendumValues[ten] = 10;
+	Encoder.addendumValues[hundred] = 100;
+	Encoder.addendumValues[thousand] = 1000;
+	DDS.setting = 0;
+	SetOptionDDS(0);
+	lcd_clrscr();
+	lcd_home();
+	Timer2(On);
+	Menu.manualActive = True;
+	Encoder.addendumChanged = True;
 }
 
 void AutoHandle()
 {
-	
+	if (Menu.autoActive) return;
+	lcd_clrscr();
+	lcd_home();
+	lcd_puts("Auto mode");
+	Menu.autoActive = True;	
+}
+
+void SetOption(enum Modes mode)
+{	
+	Menu.mainActive = False;
+	Menu.manualActive = False;
+	Menu.autoActive = False;
+	Menu.mode = mode;
+	Menu.reset = 0;
+	DDS.setting = 0;
+	Timer2(Off);
 }
 
 void SetArrow(short stepDirection)
 {
-	char eraser = 32;
-
 	lcd_gotoxy(0,Menu.arrowPosition);
-	lcd_putc(eraser);
+	lcd_putc(Eraser);
 	
 	Menu.arrowPosition += stepDirection > 0 ?
 	Menu.arrowPosition < 1 ? stepDirection : 0
@@ -154,15 +338,83 @@ void SetArrow(short stepDirection)
 	lcd_putc(Arrow);
 }
 
-int main(void)
+void MenuHandle()
 {
+	if (Right) Encoder.forward = 0;
+	{
+		if (!Right) Encoder.forward++;
+		{
+			if (Encoder.forward == 1 && Left)
+			{
+				SetArrow(1);
+			}
+		}
+	}
+	
+	if (Left) Encoder.backward = 0;
+	{
+		if (!Left) Encoder.backward++;
+		{
+			if (Encoder.backward == 1 && Right)
+			{
+				SetArrow(-1);
+			}
+		}
+	}
+	
+	if (Enter) Encoder.button = 0;
+	{
+		if (!Enter) Encoder.button++;
+		{
+			if (Encoder.button == 1)
+			{
+				SetOption(Menu.arrowPosition);
+			}
+		}
+	}
+		
+	if (Menu.mainActive) return;
+	Timer2(Off); 
+	lcd_clrscr();
+	lcd_home();
+	SetArrow(0);
+	lcd_puts(Menu.modeNames[Manual]);
+	lcd_gotoxy(1,1);
+	lcd_puts(Menu.modeNames[Auto]);
+	Menu.mainActive = True;	
+}
+
+void Initialization()
+{
+	DDRB = 0b00101110;
+	PORTB = 0b00010001;
+	
+	DDRC = 0x30;
+	PORTC = 0x4E;
+	
+	DDRD = 0xFF;
+	PORTD = 0x00;
+
 	strcpy(Menu.modeNames[0], "Manual"); // where aString is either an array or pointer to char
 	strcpy(Menu.modeNames[1], "Auto");
-	strcpy(Menu.modeNames[2], "Parameters");
-	strcpy(Menu.modeNames[3], "Reset");
-	
+	strcpy(Menu.modeNames[2], "Main");
+
 	Menu.arrowPosition = 0;
+	Menu.reset = 0;
 	Menu.mode = Main;
+}
+
+int main(void)
+{
+	Initialization();
+	lcd_init(LCD_DISP_ON);
+	lcd_led(LCD_CLR);
+	lcd_clrscr();
+	lcd_home();
+
+	Timer1();
+	Timer2(Off);
+	sei();
 	
     while(1)
     {
@@ -174,19 +426,28 @@ int main(void)
 			case Auto:
 				AutoHandle();
 				break;
+			case Main:
+				MenuHandle();
+				break;
 			default:
-				SetArrow(0);
-				lcd_puts(Menu.modeNames[0]);
-				lcd_gotoxy(1,1);
-				lcd_puts(Menu.modeNames[1]);
-				Menu.mainActive++;
+				lcd_clrscr();
+				lcd_home();
+				lcd_puts("Range out");
+				lcd_gotoxy(0, 1);
+				lcd_puts("Reboot pls");
 				break;
 		}
 		
 		if (MainTimer.ms1000)
 		{
-			DisplayPrint(False);
+			LedInv;
+			DisplayPrint();
 			MainTimer.ms1000 = 0;
+			
+			if (Menu.mode == Main) continue;
+			if (Enter && Menu.reset > 0) Menu.reset = 0; 
+			if (!Enter) Menu.reset++;
+			if (Menu.reset >= 5) SetOption(Main);
 		}
     }
 }
