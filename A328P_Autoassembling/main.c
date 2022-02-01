@@ -10,33 +10,35 @@
 #define Check(REG,BIT) (REG &  (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
 #define High(REG,BIT)  (REG |= (1<<BIT))
-#define Low(REG,BIT)   (REG &= (0<<BIT))
+#define Low(REG,BIT)   (REG &= (0<<BIT)) //(REG &= (0<<BIT))
 
 #define Led     Check(PORTB, 5)
 #define LedOn   High(PORTB, 5)
 #define LedOff  Low(PORTB, 5)
 #define LedInv  Inv(PORTB, 5)
 
-#define Right    (~PINC & (1<<1))
-#define Left     (~PINC & (1<<2))
-#define Enter    (PINC & (1<<3))
+#define Right    (~PIND & (1<<2))
+#define Left     (~PIND & (1<<3))
+#define Enter    (PIND  & (1<<4))
 
-#define BtnReset (PINC & (1<<6))
+#define BtnReset (Check(PINC, 6))
 
-#define Enable	 (!(PINL & (1<<2)))
-#define Disable	 (PINL & (1<<2))
+#define Activity (!Check(PIND, 5))
 
-#define DDSOut	  (PORTB & (1<<1))
+#define DDSOut	 (Check(PORTB, 1))
 #define DDSOutInv Inv(PORTB, 1)
 
-#define Phase    (PORTB & (1<<2))
-#define PhaseOn  PORTB |= (1<<2)
-#define PhaseOff PORTB &= (0<<2)
-#define PhaseInv PORTB ^= (1<<2)
+#define Phase    (Check(PORTD, 6))
+#define PhaseOn  High(PORTD, 6)
+#define PhaseOff Low(PORTD, 6)
+#define PhaseInv Inv(PORTD, 6)
 
 #define Init	 2
 #define On		 1
 #define Off		 0
+
+#define Start	 1
+#define Stop	 0
 
 #define	Tension		1
 #define Frequency 	0
@@ -74,7 +76,7 @@ const unsigned int		FREQUENCY_MAXIMUM = 62500;
 
 volatile struct
 {
-	unsigned int ms200, ms1000;
+	unsigned int ms16, ms16s, ms160, ms992;
 } MainTimer;
 
 struct
@@ -97,7 +99,7 @@ struct
 	unsigned short forward;
 	unsigned short backward;
 	unsigned short button;
-	unsigned short addendumChanged;
+	bool addendumChanged;
 	float multiplier;
 	float addendumValues[4];
 	enum Addendums
@@ -117,19 +119,75 @@ volatile struct
 
 volatile struct
 {
-	float frequency;	
+	float period, frequency, bufFrequency, pulseCount;
+	unsigned long int ticksCurrent,ticksPrevious,ticks;
+	unsigned long int overflows,ticksBuffer;
+	unsigned short method;
+	bool done, zero;	
 } Measure;
+
+volatile struct 
+{
+	unsigned short stopDelay, startDelay, delayCount;
+	bool stateChanged, stateChanging;
+	enum States
+	{
+		Acceleration,
+		Deceleration,
+		Regulation,
+		Waiting
+	} state;		
+} AutoMode;
+
+volatile struct
+{
+	float tension;
+	signed int value;
+	unsigned short done;
+} Convert;
+
+ISR(TIMER0_OVF_vect)
+{
+	MainTimer.ms16++;
+	MainTimer.ms16s++;
+
+	if (MainTimer.ms16 >= 10)
+	{
+		MainTimer.ms160++;
+		MainTimer.ms16 = 0;
+	}
+	
+	if (MainTimer.ms16s >= 62)
+	{
+		MainTimer.ms992++;
+		MainTimer.ms16s = 0;
+	}
+	
+	TCNT0 = 5;	
+}
 
 ISR(TIMER1_OVF_vect)
 {
-	TCNT1 = 62411;
-	MainTimer.ms200++;
+	if (Measure.method == Forward) return;
+	Measure.overflows++;
 	
-	if (MainTimer.ms200 >= 5)
+	if (Measure.overflows > 2)
 	{
-		MainTimer.ms1000++;
-		MainTimer.ms200 = 0;
-	}	
+		Measure.zero = true;
+		Measure.done = true;
+	}
+}
+
+ISR(TIMER1_CAPT_vect)
+{
+	if (Measure.method == Reporcial)
+	{
+		Measure.ticksBuffer = ICR1;
+		Measure.done = true;
+		return;
+	}
+	
+	Measure.pulseCount++;
 }
 
 ISR(TIMER2_OVF_vect)
@@ -145,14 +203,42 @@ ISR(TIMER2_OVF_vect)
 	}
 }
 
-void Timer1()
+ISR(ADC_vect)
 {
-	TCCR1B = (1 << CS12)|(0 << CS11)|(1 << CS10);
-	TIMSK1 = (1 << TOIE1);
-	TCNT1 = 62411;		
+	ADCSRA |= (0<<ADSC);
+	Convert.value = ((signed)ADCW-21);
+	Convert.done++;
 }
 
-void Timer2(unsigned int enable)
+void Timer0(bool enable)
+{
+	if (enable)
+	{
+		TCCR0B = (1 << CS02)|(0 << CS01)|(1 << CS00);
+		TIMSK0 = (1 << TOIE0);
+		TCNT0 = 0;
+		return;	
+	}
+	
+	TCCR0B = (0 << CS02)|(0 << CS01)|(0 << CS00);
+	TIMSK0 = (0 << TOIE0);
+	TCNT0 = 0;
+}
+
+void Timer1(bool enable)
+{
+	if (enable)
+	{
+		TCCR1B = (1 << ICNC1)|(1 << ICES1)|(0 << CS12)|(1 << CS11)|(1 << CS10);
+		TIMSK1 = (1 << TOIE1)|(1 << ICIE1);
+		return;
+	}
+	
+	TCCR1B = (0 << CS12)|(0 << CS11)|(0 << CS10);
+	TIMSK1 = (0 << TOIE1)|(0 << ICIE1);		
+}
+
+void Timer2(bool enable)
 {
 	if (enable)
 	{
@@ -164,6 +250,66 @@ void Timer2(unsigned int enable)
 	TCCR2B = (0<<CS22) | (0<<CS21) | (0<<CS20); 
 	TIMSK2 = (0<<TOIE2);
 	TCNT2 = 0;	
+}
+
+void Converter(unsigned short option)
+{
+	switch (option)
+	{
+		case 0:
+		ADCSRA |= (0<<ADSC);
+		break;
+		case 1:
+		ADCSRA |= (1<<ADSC);
+		break;
+		default:
+		ADCSRA = 0x8F;
+		ADMUX = 0x40;
+		ADCSRA |= (0<<ADSC);
+		break;
+	}
+}
+
+float Kalman(float value, bool reset)
+{
+	static float measureVariation = 40, estimateVariation = 0.20, speedVariation = 0.003;
+	static float CurrentEstimate = 0;
+	static float LastEstimate = 0;
+	static float Gain = 0;
+	
+	if (reset)
+	{
+		CurrentEstimate = 0;
+		LastEstimate = 0;
+		Gain = 0;
+	}
+	
+	Gain = estimateVariation / (estimateVariation + measureVariation);
+	CurrentEstimate = LastEstimate + Gain * (value - LastEstimate);
+	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
+	LastEstimate = CurrentEstimate;
+	return CurrentEstimate;
+}
+
+float MovAvgFrq(float value, bool reset)
+{
+	static float values[FrequencyArraySize];
+	static unsigned short index = 0;
+	static float result;
+	
+	if (reset)
+	{
+		for (int i=0; i < FrequencyArraySize; i++) values[i] = 0;
+		result = 0;
+		index = 0;
+		return 0;
+	}
+	
+	result += value - values[index];
+	values[index] = value;
+	index = (index + 1) % FrequencyArraySize;
+	
+	return result/FrequencyArraySize;
 }
 
 float GetAddendum(void)
@@ -296,6 +442,7 @@ void DisplayPrint()
 	static char setting[20];
 	static char addendum[10];
 	static char multiplier[10];
+	static char tension[10];
 
 	if (Menu.mode == Main) return;
 
@@ -304,18 +451,23 @@ void DisplayPrint()
 	lcd_gotoxy(0, 0);
 	lcd_puts(setting);
 	
+	sprintf(tension, "%.1f cN", Convert.tension);
+	EraseUnits(0, 1, 3, Convert.tension);
+	lcd_gotoxy(0, 1);
+	lcd_puts(tension);
+	
 	if (Menu.mode == Auto)
 	{
-		EraseUnits(9, 0, 0, Encoder.multiplier);
 		sprintf(multiplier,"x%.3f",Encoder.multiplier);
+		EraseUnits(9, 0, 0, Encoder.multiplier);
 		lcd_gotoxy(9,0);
 		lcd_puts(multiplier);
 		
 		if (Encoder.addendumChanged)
 		{
 			sprintf(addendum, "%.3f", Encoder.addendumValues[Encoder.addendum]);
-			EraseUnits(9, 1, 0, Encoder.addendumValues[Encoder.addendum]);
-			lcd_gotoxy(9, 1);
+			EraseUnits(10, 1, 0, Encoder.addendumValues[Encoder.addendum]);
+			lcd_gotoxy(10, 1);
 			lcd_puts(addendum);
 			Encoder.addendumChanged = false;
 		}
@@ -325,12 +477,45 @@ void DisplayPrint()
 	
 	if (Encoder.addendumChanged)
 	{
-		sprintf(addendum, "%.f", Encoder.addendumValues[Encoder.addendum]);
+		sprintf(addendum, "+%.f", Encoder.addendumValues[Encoder.addendum]);
 		EraseUnits(9, 1, 0, Encoder.addendumValues[Encoder.addendum]);
 		lcd_gotoxy(9, 1);
 		lcd_puts(addendum);
 		Encoder.addendumChanged = false;
 	}
+}
+
+void Calculation(unsigned short parameter)
+{
+	if (parameter == Tension)
+	{
+		MovAvgFrq(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
+		return;
+	}
+	
+	if (Measure.method == Reporcial)
+	{
+		if (AutoMode.state == Deceleration)	
+		{
+			Measure.frequency = Kalman(0, false);
+			Convert.tension = MovAvgFrq(0, false);
+			return;
+		}
+		
+		Measure.ticksCurrent = ((Measure.overflows * 65536L) + Measure.ticksBuffer) - Measure.ticksPrevious;
+		Measure.ticksPrevious = Measure.ticksBuffer;
+		Measure.period = Measure.ticksCurrent*0.000004;
+		Measure.bufFrequency = Measure.period >= 1 ? 0 : Measure.period <= 0 ? 0 : 1.f/Measure.period;
+		Measure.frequency = Kalman(Measure.zero > 0 ? 0 : Measure.bufFrequency < 1 ? Measure.frequency : Measure.bufFrequency, false);
+		Measure.overflows = 0;
+		Measure.zero = false;
+		
+		return; // return 65536 - (Measure.ticksCurrent + 10); for generation during got period (timer 3 must be On)
+	}
+	
+	Measure.frequency = MovAvgFrq((float)Measure.pulseCount*5.f, 0);
+	Measure.pulseCount = 0;
+	return;	 // 0;
 }
 
 void ManualHandle()
@@ -347,27 +532,81 @@ void ManualHandle()
 	SetOptionDDS(0);
 	lcd_clrscr();
 	lcd_home();
-	Timer2(On);
+	Timer2(true);
 	Menu.manualActive = true;
 	Encoder.addendumChanged = true;
 }
 
-void AutoHandle()
+bool AutoInit()
 {
-	EncoderHandler();
-	
-	if (Menu.autoActive) return;
+	Kalman(0, true);
+	MovAvgFrq(0, true);
+	Menu.autoActive = true;
+	Encoder.addendumChanged = true;
 	Encoder.addendumValues[one] = 1;
 	Encoder.addendumValues[ten] = 0.1;
 	Encoder.addendumValues[hundred] = 0.01;
 	Encoder.addendumValues[thousand] = 0.001;
 	Encoder.addendum = one;
-	lcd_clrscr();
-	lcd_home();
-	Timer2(On);
+	AutoMode.state = Waiting;
+	AutoMode.stateChanging = false;
+	AutoMode.stateChanged = false;
+	AutoMode.startDelay = 10; // eeprom_read_dword(2);
+	AutoMode.stopDelay = 10;  // eeprom_read_dword(3);
+	AutoMode.delayCount = 0;
 	Encoder.multiplier = eeprom_read_float((float*)1);
-	Menu.autoActive = true;
-	Encoder.addendumChanged = true;	
+	lcd_clrscr();
+	lcd_home();	
+	return true;
+}
+
+void AutoHandle()
+{
+	if (!Menu.autoActive) Menu.autoActive = AutoInit();
+	
+	EncoderHandler();
+	
+	if (Measure.done)
+	{
+		Calculation(Frequency);
+		SetOptionDDS(0);
+		Measure.done = 0;
+	}
+	
+	if (Activity && AutoMode.state == Waiting)	
+	{
+		AutoMode.state = Acceleration;
+		Timer1(true);
+		Timer2(true);
+	}
+	
+	if ((AutoMode.state == Acceleration) && (AutoMode.delayCount > AutoMode.startDelay))
+	{
+		AutoMode.state = Regulation;
+		AutoMode.delayCount = 0;
+		PhaseOn;
+		LedOn;
+	}
+	
+	if (!Activity && AutoMode.state == Regulation)
+	{
+		AutoMode.state = Deceleration;		
+	}
+	
+	if ((AutoMode.state == Deceleration) && (AutoMode.delayCount > AutoMode.stopDelay))
+	{
+		PhaseOff;
+		LedOff;
+		Timer1(false);
+		Timer2(false);
+		Kalman(0, true);
+		MovAvgFrq(0, true);
+		AutoMode.state = Waiting;
+		AutoMode.delayCount = 0;
+		DDS.setting = 0;
+		Measure.frequency = 0;
+		Convert.tension = 0;
+	}
 }
 
 void SetOption(enum Modes mode)
@@ -430,16 +669,19 @@ void MainHandle()
 	}
 		
 	if (Menu.mainActive) return;
+	PhaseOff;
+	LedOff;
 	Menu.mainActive = true;
 	DDS.setting = 0;
-	Timer2(Off); 
+	Timer1(false);
+	Timer2(false); 
 	lcd_clrscr();
 	lcd_home();
-	SetArrow(0);
 	lcd_gotoxy(1, 0);
 	lcd_puts(Menu.modeNames[Manual]);
 	lcd_gotoxy(1, 1);
 	lcd_puts(Menu.modeNames[Auto]);	
+	SetArrow(0);
 }
 
 void DisplayReinit()
@@ -455,21 +697,22 @@ void DisplayReinit()
 				lcd_clrscr();
 				lcd_home();
 				SetOption(Main);
+				Menu.lcd = 0;
 			}
 		}
 	}
 }
 
-void Initialization()
+void Initialization(unsigned int method)
 {
 	DDRB = 0b00101110;
 	PORTB = 0b00010001;
 	
-	DDRC = 0x30;
-	PORTC = 0x4E;
+	DDRC = 0b00110000;
+	PORTC = 0b01000000;
 	
-	DDRD = 0xFF;
-	PORTD = 0x00;
+	DDRD = 0b11000010;
+	PORTD = 0b00111111;
 
 	strcpy(Menu.modeNames[0], "Manual"); // where aString is either an array or pointer to char
 	strcpy(Menu.modeNames[1], "Auto");
@@ -478,17 +721,34 @@ void Initialization()
 	Menu.arrowPosition = 0;
 	Menu.resetHold = 0;
 	Menu.mode = Main;
+	
+	Measure.method = method;
+	Measure.done = 0;
+}
+
+void MenuReset()
+{
+	if (Menu.resetDelay) Menu.resetCount++;
+	if (Menu.resetCount >= 3) Menu.resetDelay = false;
+	if (Menu.mode == Main) return;
+	if (Enter && Menu.resetHold > 0) Menu.resetHold = 0;
+	if (!Enter) Menu.resetHold++;
+	if (Menu.resetHold >= 3)
+	{
+		SetOption(Main);
+		Menu.resetDelay = true;
+	}
 }
 
 int main(void)
 {
-	Initialization();
+	Initialization(Reporcial);
 	lcd_init(LCD_DISP_ON);
 	lcd_led(LCD_CLR);
 	lcd_clrscr();
 	lcd_home();
-
-	Timer1();
+	Timer0(true);
+	Converter(Init);
 	sei();
 	
     while(1)
@@ -511,22 +771,30 @@ int main(void)
 				break;
 		}
 		
-		if (MainTimer.ms1000)
+		if (Convert.done)
 		{
-			LedInv;
+			Calculation(Tension);
+			Convert.done = 0;
+		}
+		
+		if (MainTimer.ms160)
+		{
+			if ((Menu.mode == Manual) || (Menu.mode == Auto && Activity)) Converter(Start);
+			MainTimer.ms160 = 0;
+		}
+		
+		if (MainTimer.ms992)
+		{
 			DisplayPrint();
-			MainTimer.ms1000 = 0;
+			MainTimer.ms992 = 0;
 			
-			if (Menu.resetDelay) Menu.resetCount++; 
-			if (Menu.resetCount >= 3) Menu.resetDelay = false;
-			if (Menu.mode == Main) continue;
-			if (Enter && Menu.resetHold > 0) Menu.resetHold = 0; 
-			if (!Enter) Menu.resetHold++;
-			if (Menu.resetHold >= 3)
+			if (((AutoMode.state == Acceleration) || (AutoMode.state == Deceleration)) && Menu.mode == Auto)
 			{
-				SetOption(Main);
-				Menu.resetDelay = true;
-			}
+				AutoMode.delayCount++;
+				LedInv;
+			} 			
+			
+			MenuReset();
 		}
     }
 }

@@ -74,7 +74,7 @@
 #include <math.h>
 #include <avr/eeprom.h>
  
-const unsigned long int ACCUM_MAXIMUM = 1875000000; 
+const unsigned long int ACCUM_MAXIMUM = 1875000000;
 const unsigned int		FREQUENCY_MAXIMUM = 62500;
 const unsigned short	startDelay = 10;
 const unsigned short	stopDelay = 10;
@@ -582,14 +582,13 @@ void Initialization(unsigned short Method, enum Addendums addendum)
 	Encoder.multiplier = eeprom_read_float((float*)1);
 }
 
-void Calculation(unsigned short parameter)
+float CalculationTension()
 {
-	if (parameter == Tension)
-	{
-		Convert.tension = FilterMovingAverageTension(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
-		return;
-	}
-	
+	return FilterMovingAverageTension(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
+}
+
+void CalculationFrequency()
+{
 	if (Measure.method == Reporcial)
 	{
 		Measure.ticksCurrent = ((Measure.overflows * 65536L) + Measure.ticksBuffer) - Measure.ticksPrevious;
@@ -723,14 +722,14 @@ int main(void)
 
 		if (Measure.done)
 		{
-			Calculation(Frequency);
+			CalculationFrequency(Frequency);
 			SetOptionDDS(0);
 			Measure.done = 0;
 		}
 
 		if (Convert.done)
 		{
-			Calculation(Tension);
+			Convert.tension = CalculationTension(Tension);
 			Convert.done = 0;
 		}
 
