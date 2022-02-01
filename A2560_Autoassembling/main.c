@@ -497,7 +497,7 @@ void SetOptionDDS(short direction)
 	
     if (direction > 0)
     {
-        Encoder.multiplier += DDS.setting >= 31250 ? 0 : Encoder.addendumValues[Encoder.addendum]; 
+        Encoder.multiplier += DDS.setting >= 62500 ? 0 : Encoder.addendumValues[Encoder.addendum]; 
     	eeprom_update_float((float*)1, Encoder.multiplier); 
 	}
 	
