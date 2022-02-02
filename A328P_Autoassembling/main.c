@@ -25,8 +25,8 @@
 
 #define Activity (!Check(PIND, 5))
 
-#define DDSOut	 (Check(PORTB, 1))
-#define DDSOutInv Inv(PORTB, 1)
+#define DDSOut	 (Check(PORTD, 7))
+#define DDSOutInv Inv(PORTD, 7)
 
 #define Phase    (Check(PORTD, 6))
 #define PhaseOn  High(PORTD, 6)
@@ -69,7 +69,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <avr/eeprom.h>
-#include "lcd/lcdpcf8574/lcdpcf8574.h"
+#include "lcd/lcd.h"
 
 const unsigned long int ACCUM_MAXIMUM = 1875000000;
 const unsigned int		FREQUENCY_MAXIMUM = 62500;
@@ -99,7 +99,7 @@ struct
 	unsigned short forward;
 	unsigned short backward;
 	unsigned short button;
-	bool addendumChanged;
+	bool addendumChanged, multiplierChanged;
 	float multiplier;
 	float addendumValues[4];
 	enum Addendums
@@ -126,7 +126,7 @@ volatile struct
 	bool done, zero;	
 } Measure;
 
-volatile struct 
+volatile struct
 {
 	unsigned short stopDelay, startDelay, delayCount;
 	bool stateChanged, stateChanging;
@@ -320,8 +320,8 @@ void Transmit()
 	
 	memset(buffer, 0, TxBufferSize);
 	
-	sprintf(frequency, "F%.1f$", DDS.setting);
-	sprintf(tension, "Tn%.1f", Convert.tension);
+	sprintf(frequency, "$F%.1f", DDS.setting);
+	sprintf(tension, "$Tn%.1f", Convert.tension);
 	strcat(buffer, frequency);
 	strcat(buffer, tension);
 	
@@ -399,12 +399,14 @@ void SetOptionDDS(short direction)
 	{
 		Encoder.multiplier += DDS.setting >= 62500 ? 0 : Encoder.addendumValues[Encoder.addendum];
 		eeprom_update_float((float*)1, Encoder.multiplier);
+		Encoder.multiplierChanged = true;
 	}
 	
 	if (direction < 0)
 	{
 		Encoder.multiplier -= Encoder.multiplier <= Encoder.addendumValues[Encoder.addendum] ? Encoder.multiplier : Encoder.addendumValues[Encoder.addendum];
 		eeprom_update_float((float*)1, Encoder.multiplier);
+		Encoder.multiplierChanged = true;
 	}
 }
 
@@ -464,13 +466,7 @@ void EncoderHandler(void)
 void EraseUnits(int x, int y, int offset, float count)
 {
 	char eraser = 32;
-	
-	if (count<100000 || count < 0)
-	{
-		lcd_gotoxy(x+offset+5,y);
-		lcd_putc(eraser);
-	}
-	
+
 	if (count<10000)
 	{
 		lcd_gotoxy(x+offset+4,y);
@@ -505,13 +501,13 @@ void DisplayPrint()
 
 	if (Menu.mode == Main) return;
 
-	sprintf(setting, "%.1f Hz", DDS.setting);
-	EraseUnits(0, 0, 3, DDS.setting);
+	sprintf(setting, "%.1f", DDS.setting);
+	EraseUnits(0, 0, 2, DDS.setting);
 	lcd_gotoxy(0, 0);
 	lcd_puts(setting);
 	
-	sprintf(tension, "%.1f cN", Convert.tension);
-	EraseUnits(0, 1, 3, Convert.tension);
+	sprintf(tension, "%.1f", Convert.tension);
+	EraseUnits(0, 1, 2, Convert.tension);
 	lcd_gotoxy(0, 1);
 	lcd_puts(tension);
 	
@@ -524,12 +520,13 @@ void DisplayPrint()
 		Encoder.addendumChanged = false;
 	}
 	
-	if (Menu.mode == Manual) return;
+	if (Menu.mode == Manual || !Encoder.multiplierChanged) return;
 	
 	sprintf(multiplier,"x%.3f",Encoder.multiplier);
 	EraseUnits(9, 0, 0, Encoder.multiplier);
 	lcd_gotoxy(9,0);
 	lcd_puts(multiplier);
+	Encoder.multiplierChanged = false;
 }
 
 void Calculation(unsigned short parameter)
@@ -691,6 +688,7 @@ bool AutoInit()
 	AutoMode.stopDelay = 10;  // eeprom_read_dword(3);
 	AutoMode.delayCount = 0;
 	Encoder.multiplier = eeprom_read_float((float*)1);
+	Encoder.multiplierChanged = true;
 	lcd_clrscr();
 	lcd_home();	
 	return true;
@@ -748,32 +746,13 @@ void AutoHandle()
 	}
 }
 
-void DisplayReinit()
-{
-	if (BtnReset) Menu.lcd = 0;
-	{
-		if (!Enter) Menu.lcd++;
-		{
-			if (Menu.lcd)
-			{
-				lcd_init(LCD_DISP_ON);
-				lcd_led(LCD_CLR);
-				lcd_clrscr();
-				lcd_home();
-				SetOption(Main);
-				Menu.lcd = 0;
-			}
-		}
-	}
-}
-
 void Initialization(unsigned int method)
 {
-	DDRB = 0b00101110;
-	PORTB = 0b00010001;
+	DDRB = 0b00111110;
+	PORTB = 0b00000001;
 	
-	DDRC = 0b00110000;
-	PORTC = 0b01000000;
+	DDRC = 0b00111100;
+	PORTC = 0b11000000;
 	
 	DDRD = 0b11000010;
 	PORTD = 0b00111111;
@@ -806,9 +785,9 @@ void MenuReset()
 
 int main(void)
 {
+	LedOn;
 	Initialization(Reporcial);
 	lcd_init(LCD_DISP_ON);
-	lcd_led(LCD_CLR);
 	lcd_clrscr();
 	lcd_home();
 	Timer0(true);
@@ -858,7 +837,7 @@ int main(void)
 			{
 				AutoMode.delayCount++;
 				LedInv;
-			} 			
+			}
 			
 			MenuReset();
 		}
