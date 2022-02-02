@@ -350,6 +350,17 @@ void USART(unsigned short option)
 	}
 }
 
+void TxChar(unsigned char c)
+{
+	while (!(UCSR0A & (1<<UDRE0)));
+	UDR0 = c;
+}
+
+void TxString(const char* s)
+{
+	for (int i=0; s[i]; i++) TxChar(s[i]);
+}
+
 void EraseUnits(int x, int y, int offset, float count)
 {
 	char eraser = 32;
@@ -436,17 +447,6 @@ void DisplayPrint(void)
 	lcd_puts(addendum);
 }
 
-void TransmitChar(unsigned char c)
-{
-	while (!(UCSR0A & (1<<UDRE0)));
-	UDR0 = c;
-}
-
-void TransmitString(const char* s)
-{
-	for (int i=0; s[i]; i++) TransmitChar(s[i]);
-}
-
 void Transmitting()
 {
 	static char buffer[TxBufferSize];
@@ -459,7 +459,7 @@ void Transmitting()
 	strcat(buffer, frequency);
 	strcat(buffer, tension);
 	
-	TransmitString(buffer);
+	TxString(buffer);
 }
 
 void Receiving()
@@ -470,7 +470,7 @@ void Receiving()
 	if (Receive.byte == Terminator)
 	{
 		buffer[index] = StringEnd;
-		TransmitString(buffer);
+		TxString(buffer);
 		index = 0;	
 		return;
 	}

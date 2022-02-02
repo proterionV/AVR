@@ -46,10 +46,10 @@
 #define Forward	    1
 #define Reporcial 	0
 
-#define FrequencyArraySize 150
-#define TensionArraySize   30
-#define RxBufferSize 100
-#define TxBufferSize 100
+#define FreqArraySize	150
+#define TensArraySize   50
+#define RxBufferSize    100
+#define TxBufferSize	100
 
 #define NextLine    0x0A
 #define FillCell    0xFF
@@ -146,6 +146,12 @@ volatile struct
 	unsigned short done;
 } Convert;
 
+volatile struct
+{
+	unsigned char byte;
+	unsigned short byteReceived, dataHandled;
+} Rx;
+
 ISR(TIMER0_OVF_vect)
 {
 	MainTimer.ms16++;
@@ -153,7 +159,7 @@ ISR(TIMER0_OVF_vect)
 
 	if (MainTimer.ms16 >= 10)
 	{
-		MainTimer.ms160++;
+		if ((Menu.mode == Manual) || (Menu.mode == Auto && !(AutoMode.state == Waiting))) MainTimer.ms160++;
 		MainTimer.ms16 = 0;
 	}
 	
@@ -210,6 +216,12 @@ ISR(ADC_vect)
 	Convert.done++;
 }
 
+ISR(USART0_RX_vect)
+{
+	Rx.byte = UDR0;
+	Rx.byteReceived++;
+}
+
 void Timer0(bool enable)
 {
 	if (enable)
@@ -257,22 +269,68 @@ void Converter(unsigned short option)
 	switch (option)
 	{
 		case 0:
-		ADCSRA |= (0<<ADSC);
-		break;
+			ADCSRA |= (0<<ADSC);
+			break;
 		case 1:
-		ADCSRA |= (1<<ADSC);
-		break;
+			ADCSRA |= (1<<ADSC);
+			break;
 		default:
-		ADCSRA = 0x8F;
-		ADMUX = 0x40;
-		ADCSRA |= (0<<ADSC);
-		break;
+			ADCSRA = 0x8F;
+			ADMUX = 0x40;
+			ADCSRA |= (0<<ADSC);
+			break;
 	}
+}
+
+void USART(unsigned short option)
+{
+	switch (option)
+	{
+		case 0:
+			UCSR0B |= (0 << TXEN0);
+			break;
+		case 1:
+			UCSR0B |= (1 << TXEN0);
+			break;
+		default:
+			UCSR0B = (0 << RXEN0) | (0 << TXEN0) | (0 << RXCIE0);
+			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+			UBRR0L = 0;
+			break;
+	}
+}
+
+void TxChar(unsigned char c)
+{
+	while (!(UCSR0A & (1<<UDRE0)));
+	UDR0 = c;
+}
+
+void TxString(const char* s)
+{
+	for (int i=0; s[i]; i++) TxChar(s[i]);
+}
+
+void Transmit()
+{
+	static char buffer[TxBufferSize];
+	static char tension[20], frequency[20];
+	
+	if (Menu.mode == Manual && !Phase) return;
+	
+	memset(buffer, 0, TxBufferSize);
+	
+	sprintf(frequency, "F%.1f$", DDS.setting);
+	sprintf(tension, "Tn%.1f", Convert.tension);
+	strcat(buffer, frequency);
+	strcat(buffer, tension);
+	
+	TxString(buffer);
 }
 
 float Kalman(float value, bool reset)
 {
-	static float measureVariation = 40, estimateVariation = 0.20, speedVariation = 0.003;
+	static float measureVariation = 40, estimateVariation = 0.20, speedVariation = 0.009;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -293,13 +351,13 @@ float Kalman(float value, bool reset)
 
 float MovAvgFrq(float value, bool reset)
 {
-	static float values[FrequencyArraySize];
+	static float values[TensArraySize];
 	static unsigned short index = 0;
 	static float result;
 	
 	if (reset)
 	{
-		for (int i=0; i < FrequencyArraySize; i++) values[i] = 0;
+		for (int i=0; i < TensArraySize; i++) values[i] = 0;
 		result = 0;
 		index = 0;
 		return 0;
@@ -307,9 +365,9 @@ float MovAvgFrq(float value, bool reset)
 	
 	result += value - values[index];
 	values[index] = value;
-	index = (index + 1) % FrequencyArraySize;
+	index = (index + 1) % TensArraySize;
 	
-	return result/FrequencyArraySize;
+	return result/TensArraySize;
 }
 
 float GetAddendum(void)
@@ -326,6 +384,7 @@ void SetOptionDDS(short direction)
 		if (direction > 0) DDS.setting += DDS.setting + Encoder.addendumValues[Encoder.addendum] <= FREQUENCY_MAXIMUM ? Encoder.addendumValues[Encoder.addendum] : 0;
 		if (direction < 0) DDS.setting -= DDS.setting - Encoder.addendumValues[Encoder.addendum] < 0 ? DDS.setting : Encoder.addendumValues[Encoder.addendum];  
 		DDS.increment = GetAddendum();
+		if (DDS.setting < 0.1) PhaseOff; else PhaseOn;
 		return;
 	}
 	
@@ -440,9 +499,9 @@ void EraseUnits(int x, int y, int offset, float count)
 void DisplayPrint()
 {
 	static char setting[20];
+	static char tension[20];
 	static char addendum[10];
 	static char multiplier[10];
-	static char tension[10];
 
 	if (Menu.mode == Main) return;
 
@@ -456,40 +515,40 @@ void DisplayPrint()
 	lcd_gotoxy(0, 1);
 	lcd_puts(tension);
 	
-	if (Menu.mode == Auto)
-	{
-		sprintf(multiplier,"x%.3f",Encoder.multiplier);
-		EraseUnits(9, 0, 0, Encoder.multiplier);
-		lcd_gotoxy(9,0);
-		lcd_puts(multiplier);
-		
-		if (Encoder.addendumChanged)
-		{
-			sprintf(addendum, "%.3f", Encoder.addendumValues[Encoder.addendum]);
-			EraseUnits(10, 1, 0, Encoder.addendumValues[Encoder.addendum]);
-			lcd_gotoxy(10, 1);
-			lcd_puts(addendum);
-			Encoder.addendumChanged = false;
-		}
-		
-		return;
-	}
-	
 	if (Encoder.addendumChanged)
 	{
-		sprintf(addendum, "+%.f", Encoder.addendumValues[Encoder.addendum]);
-		EraseUnits(9, 1, 0, Encoder.addendumValues[Encoder.addendum]);
-		lcd_gotoxy(9, 1);
+		sprintf(addendum, Menu.mode == Manual ? "%.1f" : "%.3f", Encoder.addendumValues[Encoder.addendum]);
+		EraseUnits(10, 1, 0, Encoder.addendumValues[Encoder.addendum]);
+		lcd_gotoxy(10, 1);
 		lcd_puts(addendum);
 		Encoder.addendumChanged = false;
 	}
+	
+	if (Menu.mode == Manual) return;
+	
+	sprintf(multiplier,"x%.3f",Encoder.multiplier);
+	EraseUnits(9, 0, 0, Encoder.multiplier);
+	lcd_gotoxy(9,0);
+	lcd_puts(multiplier);
 }
 
 void Calculation(unsigned short parameter)
 {
 	if (parameter == Tension)
 	{
-		MovAvgFrq(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
+		if (AutoMode.state == Deceleration)
+		{
+			Convert.tension = MovAvgFrq(0, false);
+			return;
+		}
+		
+		if (AutoMode.state == Waiting)
+		{
+			Convert.tension = MovAvgFrq(0, false);
+			return;
+		}
+		
+		Convert.tension = Menu.mode == Main ? 0 : MovAvgFrq(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
 		return;
 	}
 	
@@ -498,7 +557,6 @@ void Calculation(unsigned short parameter)
 		if (AutoMode.state == Deceleration)	
 		{
 			Measure.frequency = Kalman(0, false);
-			Convert.tension = MovAvgFrq(0, false);
 			return;
 		}
 		
@@ -518,99 +576,8 @@ void Calculation(unsigned short parameter)
 	return;	 // 0;
 }
 
-void ManualHandle()
-{
-	EncoderHandler();
-
-	if (Menu.manualActive) return;
-	Encoder.addendumValues[one] = 1;
-	Encoder.addendumValues[ten] = 10;
-	Encoder.addendumValues[hundred] = 100;
-	Encoder.addendumValues[thousand] = 1000;
-	Encoder.addendum = one;
-	DDS.setting = 0;
-	SetOptionDDS(0);
-	lcd_clrscr();
-	lcd_home();
-	Timer2(true);
-	Menu.manualActive = true;
-	Encoder.addendumChanged = true;
-}
-
-bool AutoInit()
-{
-	Kalman(0, true);
-	MovAvgFrq(0, true);
-	Menu.autoActive = true;
-	Encoder.addendumChanged = true;
-	Encoder.addendumValues[one] = 1;
-	Encoder.addendumValues[ten] = 0.1;
-	Encoder.addendumValues[hundred] = 0.01;
-	Encoder.addendumValues[thousand] = 0.001;
-	Encoder.addendum = one;
-	AutoMode.state = Waiting;
-	AutoMode.stateChanging = false;
-	AutoMode.stateChanged = false;
-	AutoMode.startDelay = 10; // eeprom_read_dword(2);
-	AutoMode.stopDelay = 10;  // eeprom_read_dword(3);
-	AutoMode.delayCount = 0;
-	Encoder.multiplier = eeprom_read_float((float*)1);
-	lcd_clrscr();
-	lcd_home();	
-	return true;
-}
-
-void AutoHandle()
-{
-	if (!Menu.autoActive) Menu.autoActive = AutoInit();
-	
-	EncoderHandler();
-	
-	if (Measure.done)
-	{
-		Calculation(Frequency);
-		SetOptionDDS(0);
-		Measure.done = 0;
-	}
-	
-	if (Activity && AutoMode.state == Waiting)	
-	{
-		AutoMode.state = Acceleration;
-		Timer1(true);
-		Timer2(true);
-	}
-	
-	if ((AutoMode.state == Acceleration) && (AutoMode.delayCount > AutoMode.startDelay))
-	{
-		AutoMode.state = Regulation;
-		AutoMode.delayCount = 0;
-		PhaseOn;
-		LedOn;
-	}
-	
-	if (!Activity && AutoMode.state == Regulation)
-	{
-		AutoMode.state = Deceleration;		
-	}
-	
-	if ((AutoMode.state == Deceleration) && (AutoMode.delayCount > AutoMode.stopDelay))
-	{
-		PhaseOff;
-		LedOff;
-		Timer1(false);
-		Timer2(false);
-		Kalman(0, true);
-		MovAvgFrq(0, true);
-		AutoMode.state = Waiting;
-		AutoMode.delayCount = 0;
-		DDS.setting = 0;
-		Measure.frequency = 0;
-		Convert.tension = 0;
-	}
-}
-
 void SetOption(enum Modes mode)
-{	
+{
 	Menu.mode = mode;
 	Menu.mainActive = false;
 	Menu.manualActive = false;
@@ -667,21 +634,118 @@ void MainHandle()
 			}
 		}
 	}
-		
+	
 	if (Menu.mainActive) return;
 	PhaseOff;
 	LedOff;
 	Menu.mainActive = true;
-	DDS.setting = 0;
 	Timer1(false);
-	Timer2(false); 
+	Timer2(false);
+	USART(Off);
+	Kalman(0, true);
+	MovAvgFrq(0, true);
+	DDS.setting = 0;
+	DDS.increment = 0;
+	Convert.value = 0;
+	Convert.tension = 0;
 	lcd_clrscr();
 	lcd_home();
 	lcd_gotoxy(1, 0);
 	lcd_puts(Menu.modeNames[Manual]);
 	lcd_gotoxy(1, 1);
-	lcd_puts(Menu.modeNames[Auto]);	
+	lcd_puts(Menu.modeNames[Auto]);
 	SetArrow(0);
+}
+
+void ManualHandle()
+{
+	EncoderHandler();
+
+	if (Menu.manualActive) return;
+	Encoder.addendumValues[one] = 0.1;
+	Encoder.addendumValues[ten] = 1;
+	Encoder.addendumValues[hundred] = 10;
+	Encoder.addendumValues[thousand] = 100;
+	Encoder.addendum = one;
+	lcd_clrscr();
+	lcd_home();
+	Timer2(true);
+	USART(On);
+	Menu.manualActive = true;
+	Encoder.addendumChanged = true;
+}
+
+bool AutoInit()
+{
+	Menu.autoActive = true;
+	Encoder.addendumChanged = true;
+	Encoder.addendumValues[one] = 1;
+	Encoder.addendumValues[ten] = 0.1;
+	Encoder.addendumValues[hundred] = 0.01;
+	Encoder.addendumValues[thousand] = 0.001;
+	Encoder.addendum = one;
+	AutoMode.state = Waiting;
+	AutoMode.stateChanging = false;
+	AutoMode.stateChanged = false;
+	AutoMode.startDelay = 10; // eeprom_read_dword(2);
+	AutoMode.stopDelay = 10;  // eeprom_read_dword(3);
+	AutoMode.delayCount = 0;
+	Encoder.multiplier = eeprom_read_float((float*)1);
+	lcd_clrscr();
+	lcd_home();	
+	return true;
+}
+
+void AutoHandle()
+{
+	if (!Menu.autoActive) Menu.autoActive = AutoInit();
+	
+	EncoderHandler();
+	
+	if (Measure.done)
+	{
+		Calculation(Frequency);
+		SetOptionDDS(0);
+		Measure.done = 0;
+	}
+	
+	if (Activity && AutoMode.state == Waiting)	
+	{
+		AutoMode.state = Acceleration;
+		Timer1(true);
+		Timer2(true);
+		USART(On);
+	}
+	
+	if ((AutoMode.state == Acceleration) && (AutoMode.delayCount > AutoMode.startDelay))
+	{
+		AutoMode.state = Regulation;
+		AutoMode.delayCount = 0;
+		PhaseOn;
+		LedOn;
+	}
+	
+	if (!Activity && AutoMode.state == Regulation)
+	{
+		AutoMode.state = Deceleration;		
+	}
+	
+	if ((AutoMode.state == Deceleration) && (AutoMode.delayCount > AutoMode.stopDelay))
+	{
+		PhaseOff;
+		LedOff;
+		Timer1(false);
+		Timer2(false);
+		USART(Off);
+		Kalman(0, true);
+		MovAvgFrq(0, true);
+		AutoMode.state = Waiting;
+		AutoMode.delayCount = 0;
+		DDS.setting = 0;
+		Measure.frequency = 0;
+		Convert.value = 0;
+		Convert.tension = 0;
+	}
 }
 
 void DisplayReinit()
@@ -749,6 +813,7 @@ int main(void)
 	lcd_home();
 	Timer0(true);
 	Converter(Init);
+	USART(Init);
 	sei();
 	
     while(1)
@@ -779,7 +844,8 @@ int main(void)
 		
 		if (MainTimer.ms160)
 		{
-			if ((Menu.mode == Manual) || (Menu.mode == Auto && Activity)) Converter(Start);
+			Converter(Start);
+			Transmit();
 			MainTimer.ms160 = 0;
 		}
 		
@@ -788,7 +854,7 @@ int main(void)
 			DisplayPrint();
 			MainTimer.ms992 = 0;
 			
-			if (((AutoMode.state == Acceleration) || (AutoMode.state == Deceleration)) && Menu.mode == Auto)
+			if (Menu.mode == Auto && ((AutoMode.state == Acceleration) || (AutoMode.state == Deceleration)))
 			{
 				AutoMode.delayCount++;
 				LedInv;
