@@ -320,7 +320,7 @@ void Transmit()
 	
 	memset(buffer, 0, TxBufferSize);
 	
-	sprintf(frequency, "$F%.1f", DDS.setting);
+	sprintf(frequency, "$F%.1f", Measure.frequency);
 	sprintf(tension, "$Tn%.1f", Convert.tension);
 	strcat(buffer, frequency);
 	strcat(buffer, tension);
@@ -501,8 +501,8 @@ void DisplayPrint()
 
 	if (Menu.mode == Main) return;
 
-	sprintf(setting, "%.1f", DDS.setting);
-	EraseUnits(0, 0, 2, DDS.setting);
+	sprintf(setting, "%.1f", Measure.frequency);
+	EraseUnits(0, 0, 2, Measure.frequency);
 	lcd_gotoxy(0, 0);
 	lcd_puts(setting);
 	
@@ -763,7 +763,7 @@ void Initialization(unsigned int method)
 
 	Menu.arrowPosition = 0;
 	Menu.resetHold = 0;
-	Menu.mode = Main;
+	Menu.mode = Auto;
 	
 	Measure.method = method;
 	Measure.done = 0;

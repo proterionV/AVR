@@ -22,7 +22,7 @@
 
 #define NextLine 0x0A
 #define FillCell 0xFF
-#define StopChar '$'
+#define Terminator '$'
 
 #define SizeReceiveBuffer 100
 #define SizeTransmitBuffer 100
@@ -107,10 +107,8 @@ ISR(TIMER1_OVF_vect)
 	
 	if (MainTimer.ms200 >= 5)
 	{
-		Watch.sec++;
 		MainTimer.ms1000++;
 		MainTimer.ms200 = 0;
-		if (Watch.sec >= 60) Watch.sec = 0;
 	}
 }
 
@@ -221,7 +219,7 @@ unsigned short UART_ReceiveHandler()
 	static unsigned short queue = 0;
 	static char undefined[SizeTransmitBuffer];
 	
-	if (Receive.byte != StopChar) 
+	if (Receive.byte != Terminator) 
 	{
 		Receive.bytes[queue] = Receive.byte;
 		queue = (queue + 1) % SizeReceiveBuffer;
@@ -313,23 +311,19 @@ void Regulator(void)
 
 int main(void)
 {
-	DDRB = 0xFF;
-	PORTB = 0x00;
-	
-	DDRC = 0x30;
-	PORTC = 0x40;
-	
-	DDRD = 0xFF;
-	PORTD = 0x00;
-
-	RegulatorInit(1, 0.8, 1, 0.0001);
-
-	LedOn;
-
-	lcd_init(LCD_DISP_ON);
-	lcd_led(LCD_CLR);
-	lcd_clrscr();
-	lcd_home();
+	//DDRB = 0xFF;
+	//PORTB = 0x00;
+	//
+	//DDRC = 0x30;
+	//PORTC = 0x40;
+	//
+	//DDRD = 0xFF;
+	//PORTD = 0x00;
+//
+	//lcd_init(LCD_DISP_ON);
+	//lcd_led(LCD_CLR);
+	//lcd_clrscr();
+	//lcd_home();
 
 	Timer1();
 	UART();
@@ -345,7 +339,7 @@ int main(void)
 		
 		if (MainTimer.ms1000)
 		{
-			DisplayPrint(False);
+			UART_TransmitChar(Terminator);
 			MainTimer.ms1000 = 0;
 		}  
 	}
