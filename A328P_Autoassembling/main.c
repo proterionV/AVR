@@ -501,7 +501,7 @@ void DisplayPrint()
 
 	if (Menu.mode == Main) return;
 
-	sprintf(setting, "%.1f", Measure.frequency);
+	sprintf(setting, "%.1f", Menu.mode == Auto ? Measure.frequency : DDS.setting);
 	EraseUnits(0, 0, 2, Measure.frequency);
 	lcd_gotoxy(0, 0);
 	lcd_puts(setting);
@@ -746,7 +746,7 @@ void AutoHandle()
 	}
 }
 
-void Initialization(unsigned int method)
+void Initialization(enum Modes mode, unsigned int method)
 {
 	DDRB = 0b00111110;
 	PORTB = 0b00000001;
@@ -763,7 +763,7 @@ void Initialization(unsigned int method)
 
 	Menu.arrowPosition = 0;
 	Menu.resetHold = 0;
-	Menu.mode = Auto;
+	Menu.mode = mode;
 	
 	Measure.method = method;
 	Measure.done = 0;
@@ -786,7 +786,7 @@ void MenuReset()
 int main(void)
 {
 	LedOn;
-	Initialization(Reporcial);
+	Initialization(Auto, Reporcial);
 	lcd_init(LCD_DISP_ON);
 	lcd_clrscr();
 	lcd_home();
