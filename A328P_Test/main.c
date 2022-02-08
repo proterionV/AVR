@@ -230,7 +230,7 @@ unsigned short UART_ReceiveHandler()
 	
 	if (!(strcasecmp(Receive.bytes, "led")))
 	{
-		LedInv;
+		if (Led) LedOff; else LedOn;
 	}
 	else if (!(strcasecmp(Receive.bytes, "print")))
 	{
@@ -311,8 +311,8 @@ void Regulator(void)
 
 int main(void)
 {
-	//DDRB = 0xFF;
-	//PORTB = 0x00;
+	DDRB = 0xFF;
+	PORTB = 0x00;
 	//
 	//DDRC = 0x30;
 	//PORTC = 0x40;
@@ -328,7 +328,7 @@ int main(void)
 	Timer1();
 	UART();
 	sei();
-	
+
 	while(1)
 	{	
 		if (Receive.byteReceived)

@@ -10,7 +10,7 @@
 #define Check(REG,BIT) (REG &  (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
 #define High(REG,BIT)  (REG |= (1<<BIT))
-#define Low(REG,BIT)   (REG &= (0<<BIT)) //(REG &= (0<<BIT))
+#define Low(REG,BIT)   (REG &= (0<<BIT)) 
 
 #define Led     Check(PORTB, 5)
 #define LedOn   High(PORTB, 5)
@@ -71,8 +71,8 @@
 #include <avr/eeprom.h>
 #include "lcd/lcd.h"
 
-const unsigned long int ACCUM_MAXIMUM = 1875000000;
-//const unsigned int		FREQUENCY_MAXIMUM = 62500; // timer2 divider 256
+const unsigned long int ACCUM_MAXIMUM = 500000000; 
+//const unsigned int	   FREQUENCY_MAXIMUM = 62500; // timer2 divider 256
 const unsigned int		FREQUENCY_MAXIMUM = 15625; // timer2 divider 1024
 
 volatile struct
@@ -151,7 +151,7 @@ volatile struct
 volatile struct
 {
 	unsigned char byte;
-	unsigned short byteReceived, dataHandled;
+	bool byteReceived;
 } Rx;
 
 ISR(TIMER0_OVF_vect)
@@ -200,7 +200,7 @@ ISR(TIMER1_CAPT_vect)
 
 ISR(TIMER2_OVF_vect)
 {
-	TCNT2 = 255;
+	TCNT2 = 254;
 	
 	DDS.accum += DDS.increment;
 	
@@ -222,6 +222,77 @@ ISR(USART0_RX_vect)
 {
 	Rx.byte = UDR0;
 	Rx.byteReceived++;
+}
+
+void EraseUnits(int x, int y, int offset, float count)
+{
+	char eraser = 32;
+
+	if (count<10000)
+	{
+		lcd_gotoxy(x+offset+4,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<1000)
+	{
+		lcd_gotoxy(x+offset+3,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<100)
+	{
+		lcd_gotoxy(x+offset+2,y);
+		lcd_putc(eraser);
+	}
+	
+	if (count<10)
+	{
+		lcd_gotoxy(x+offset+1,y);
+		lcd_putc(eraser);
+	}
+}
+
+void DisplayPrint()
+{
+	static char setting[20];
+	static char tension[20];
+	static char addendum[10];
+	static char multiplier[10];
+
+	if (Menu.mode == Main) return;
+
+	sprintf(setting, "%.1f", Menu.mode == Auto ? Measure.frequency : DDS.setting);
+	EraseUnits(0, 0, 2, Measure.frequency);
+	lcd_gotoxy(0, 0);
+	lcd_puts(setting);
+	
+	sprintf(tension, "%.1f", Convert.tension);
+	EraseUnits(0, 1, 2, Convert.tension);
+	lcd_gotoxy(0, 1);
+	lcd_puts(tension);
+	
+	if (Encoder.addendumChanged || MainTimer.displayReinit)
+	{
+		sprintf(addendum, Menu.mode == Manual ? "%.1f" : "%.3f", Encoder.addendumValues[Encoder.addendum]);
+		EraseUnits(10, 1, 0, Encoder.addendumValues[Encoder.addendum]);
+		lcd_gotoxy(10, 1);
+		lcd_puts(addendum);
+		Encoder.addendumChanged = false;
+		MainTimer.displayReinit = false;
+	}
+	
+	if (Menu.mode == Manual) return;
+	
+	if (Encoder.multiplierChanged || MainTimer.displayReinit)
+	{
+		sprintf(multiplier,"x%.3f",Encoder.multiplier);
+		EraseUnits(9, 0, 0, Encoder.multiplier);
+		lcd_gotoxy(9,0);
+		lcd_puts(multiplier);
+		Encoder.multiplierChanged = false;
+		MainTimer.displayReinit = false;
+	}
 }
 
 void Timer0(bool enable)
@@ -296,7 +367,7 @@ void USART(unsigned short option)
 			UCSR0B |= (1 << TXEN0);
 			break;
 		default:
-			UCSR0B = (0 << RXEN0) | (0 << TXEN0) | (0 << RXCIE0);
+			UCSR0B = (0 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
 			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
 			UBRR0L = 0;
 			break;
@@ -331,9 +402,43 @@ void Transmit()
 	TxString(buffer);
 }
 
+void Receive()
+{
+	static char RxBuffer[RxBufferSize];
+	static char TxBuffer[TxBufferSize] = "error: ";
+	static char RxCharBuffer[2];
+	
+	RxCharBuffer[0] = Rx.byte;
+	
+	if (Rx.byte != Terminator)
+	{
+		strcat(RxBuffer, RxCharBuffer);
+		return;
+	}
+	
+	if (!(strcasecmp(RxBuffer, "led")))
+	{
+		if (Led) LedOff; else LedOn;
+	}
+	else if (!(strcasecmp(RxBuffer, "print")))
+	{
+		EraseUnits(0, 0, 0, 0);
+		lcd_gotoxy(0, 0);
+		lcd_puts(RxBuffer);
+	}
+	else
+	{
+		strcat(TxBuffer, RxBuffer);
+		TxString(TxBuffer);
+		memset(TxBuffer, 9, TxBufferSize);
+	}
+	
+	memset(RxBuffer, 0, RxBufferSize);
+}
+
 float Kalman(float value, bool reset)
 {
-	static float measureVariation = 40, estimateVariation = 0.20, speedVariation = 0.009;
+	static float measureVariation = 40, estimateVariation = 0.20, speedVariation = 0.001;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -377,7 +482,7 @@ float GetAddendum(void)
 {
 	static unsigned int divider = 0;
 	divider = DDS.setting < 11000 ? 10000 : 100000;
-	return (((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider;
+	return ((((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider)/2;
 }
 
 void SetOptionDDS(short direction)
@@ -463,77 +568,6 @@ void EncoderHandler(void)
 				Encoder.addendumChanged = true;
 			}
 		}
-	}
-}
-
-void EraseUnits(int x, int y, int offset, float count)
-{
-	char eraser = 32;
-
-	if (count<10000)
-	{
-		lcd_gotoxy(x+offset+4,y);
-		lcd_putc(eraser);
-	}
-	
-	if (count<1000)
-	{
-		lcd_gotoxy(x+offset+3,y);
-		lcd_putc(eraser);
-	}
-	
-	if (count<100)
-	{
-		lcd_gotoxy(x+offset+2,y);
-		lcd_putc(eraser);
-	}
-	
-	if (count<10)
-	{
-		lcd_gotoxy(x+offset+1,y);
-		lcd_putc(eraser);
-	}
-}
-
-void DisplayPrint()
-{
-	static char setting[20];
-	static char tension[20];
-	static char addendum[10];
-	static char multiplier[10];
-
-	if (Menu.mode == Main) return;
-
-	sprintf(setting, "%.1f", Menu.mode == Auto ? Measure.frequency : DDS.setting);
-	EraseUnits(0, 0, 2, Measure.frequency);
-	lcd_gotoxy(0, 0);
-	lcd_puts(setting);
-	
-	sprintf(tension, "%.1f", Convert.tension);
-	EraseUnits(0, 1, 2, Convert.tension);
-	lcd_gotoxy(0, 1);
-	lcd_puts(tension);
-	
-	if (Encoder.addendumChanged || MainTimer.displayReinit)
-	{
-		sprintf(addendum, Menu.mode == Manual ? "%.1f" : "%.3f", Encoder.addendumValues[Encoder.addendum]);
-		EraseUnits(10, 1, 0, Encoder.addendumValues[Encoder.addendum]);
-		lcd_gotoxy(10, 1);
-		lcd_puts(addendum);
-		Encoder.addendumChanged = false;
-		MainTimer.displayReinit = false;
-	}
-	
-	if (Menu.mode == Manual) return;
-	
-	if (Encoder.multiplierChanged || MainTimer.displayReinit)
-	{
-		sprintf(multiplier,"x%.3f",Encoder.multiplier);
-		EraseUnits(9, 0, 0, Encoder.multiplier);
-		lcd_gotoxy(9,0);
-		lcd_puts(multiplier);
-		Encoder.multiplierChanged = false;
-		MainTimer.displayReinit = false;
 	}
 }
 
@@ -694,7 +728,7 @@ bool AutoInit()
 	AutoMode.stateChanging = false;
 	AutoMode.stateChanged = false;
 	AutoMode.startDelay = 10; // eeprom_read_dword(2);
-	AutoMode.stopDelay = 10;  // eeprom_read_dword(3);
+	AutoMode.stopDelay = 3;  // eeprom_read_dword(3);
 	AutoMode.delayCount = 0;
 	Encoder.multiplier = eeprom_read_float((float*)1);
 	Encoder.multiplierChanged = true;
@@ -764,7 +798,7 @@ void Initialization(enum Modes mode, unsigned int method)
 	DDRC = 0b00111100;
 	PORTC = 0b11000000;
 	
-	DDRD = 0b11000010;
+	DDRD = 0b11000011;
 	PORTD = 0b00111111;
 
 	strcpy(Menu.modeNames[0], "Manual"); // where aString is either an array or pointer to char
@@ -786,7 +820,7 @@ void MenuReset()
 	if (Menu.mode == Main) return;
 	if (Enter && Menu.resetHold > 0) Menu.resetHold = 0;
 	if (!Enter) Menu.resetHold++;
-	if (Menu.resetHold >= 3)
+	if (Menu.resetHold >= 2)
 	{
 		SetOption(Main);
 		Menu.resetDelay = true;
@@ -803,7 +837,7 @@ void DisplayReinit()
 int main(void)
 {
 	LedOn;
-	Initialization(Auto, Reporcial);
+	Initialization(Main, Reporcial);
 	lcd_init(LCD_DISP_ON);
 	lcd_clrscr();
 	lcd_home();
@@ -845,21 +879,18 @@ int main(void)
 			MainTimer.ms160 = 0;
 		}
 		
+		if (Rx.byteReceived)
+		{
+			Receive();
+			Rx.byteReceived = 0;
+		}
+		
 		if (MainTimer.ms992)
 		{
 			DisplayPrint();
+			TxChar(Terminator);
+			if (Led) LedOff; else LedOn;
 			MainTimer.ms992 = 0;
-			
-			if (MainTimer.sec >= 59) 
-			{
-				DisplayReinit();
-				MainTimer.displayReinit = true;
-				MainTimer.sec = 0;
-			}
-			else
-			{
-				if (!(Menu.mode == Main)) MainTimer.sec++;
-			}
 			
 			if (Menu.mode == Auto && ((AutoMode.state == Acceleration) || (AutoMode.state == Deceleration)))
 			{
