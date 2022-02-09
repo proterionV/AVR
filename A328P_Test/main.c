@@ -27,6 +27,9 @@
 #define SizeReceiveBuffer 100
 #define SizeTransmitBuffer 100
 
+#define DDSOut	 (Check(PORTD, 7))
+#define DDSOutInv Inv(PORTD, 7)
+
 #include <xc.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
@@ -34,16 +37,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <float.h>
 #include <avr/eeprom.h>
 #include "lcd/lcdpcf8574/lcdpcf8574.h"
 
-const unsigned long int ACCUM_MAXIMUM = 1875000000;
-const unsigned int		FREQUENCY_MAXIMUM = 62500;
-
+const unsigned long int ACCUM_MAXIMUM = 500000000;
+//const unsigned int	   FREQUENCY_MAXIMUM = 62500; // timer2 divider 256
+const unsigned int		FREQUENCY_MAXIMUM = 15625; // timer2 divider 1024
+ unsigned short flag = 0;
 struct
 {
-	unsigned int ms200, ms1000;
+	unsigned int ms200, ms200a, ms1000;
 } MainTimer;
 
 struct
@@ -104,11 +109,25 @@ ISR(TIMER1_OVF_vect)
 {
 	TCNT1 = 62411;
 	MainTimer.ms200++;
+	MainTimer.ms200a++;
 	
 	if (MainTimer.ms200 >= 5)
 	{
 		MainTimer.ms1000++;
 		MainTimer.ms200 = 0;
+	}
+}
+
+ISR(TIMER2_OVF_vect)
+{
+	TCNT2 = 254;
+	
+	DDS.accum += DDS.increment;
+	
+	if (DDS.accum >= ACCUM_MAXIMUM)
+	{
+		DDSOutInv;
+		DDS.accum -= ACCUM_MAXIMUM;
 	}
 }
 
@@ -123,6 +142,21 @@ void Timer1()
 	TCCR1B = (1 << CS12)|(0 << CS11)|(1 << CS10);
 	TIMSK1 = (1 << TOIE1);
 	TCNT1 = 62411;
+}
+
+void Timer2(bool enable)
+{
+	if (enable)
+	{
+		//TCCR2B = (1<<CS22) | (0<<CS21) | (0<<CS20); // 256 bit scaler
+		TCCR2B = (1<<CS22) | (0<<CS21) | (1<<CS20); // 1024 bit scaler
+		TIMSK2 = (1<<TOIE2);
+		return;
+	}
+	
+	TCCR2B = (0<<CS22) | (0<<CS21) | (0<<CS20);
+	TIMSK2 = (0<<TOIE2);
+	TCNT2 = 0;
 }
 
 void EraseUnits(int x, int y, int offset, float count)
@@ -203,15 +237,21 @@ void UART()
 	UBRR0L = 0;
 }
 
-void UART_TransmitChar(unsigned char c)
+void TxChar(unsigned char c)
 {
 	while (!(UCSR0A & (1<<UDRE0)));
 	UDR0 = c;
 }
 
-void UART_TransmitString(const char* s)
+void TxString(const char* s)
 {
-	for (int i=0; s[i]; i++) UART_TransmitChar(s[i]);
+	for (int i=0; s[i]; i++) TxChar(s[i]);
+}
+
+void Transmit()
+{
+	static char frequency[20];
+	sprintf(frequency, "%.1f", DDS.setting);
 }
 
 unsigned short UART_ReceiveHandler()
@@ -244,7 +284,7 @@ unsigned short UART_ReceiveHandler()
 		strcat(undefined, "Undefined command: \"");
 		strcat(undefined, Receive.bytes);
 		strcat(undefined, "\"");
-		UART_TransmitString(undefined);	
+		TxString(undefined);	
 	}
 	
 	for (int i=0; i<SizeReceiveBuffer; i++) Receive.bytes[i] = 0;
@@ -256,14 +296,14 @@ float GetAddendum(void)
 {
 	static unsigned int divider = 0;
 	divider = DDS.setting < 11000 ? 10000 : 100000;
-	return (((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider;
+	return ((((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider)/2;
 }
 
 void SetOptionDDS(short direction)
 {
 	if (!direction)
 	{
-		DDS.setting = Measure.frequency * Encoder.multiplier;
+		//DDS.setting = Measure.frequency * Encoder.multiplier;
 		DDS.increment = GetAddendum();
 		return;
 	}
@@ -313,33 +353,30 @@ int main(void)
 {
 	DDRB = 0xFF;
 	PORTB = 0x00;
-	//
-	//DDRC = 0x30;
-	//PORTC = 0x40;
-	//
-	//DDRD = 0xFF;
-	//PORTD = 0x00;
-//
-	//lcd_init(LCD_DISP_ON);
-	//lcd_led(LCD_CLR);
-	//lcd_clrscr();
-	//lcd_home();
+
+	DDRD = 0xFF;
+	PORTD = 0x00;
 
 	Timer1();
+	Timer2(true);
 	UART();
 	sei();
 
 	while(1)
-	{	
-		if (Receive.byteReceived)
+	{		
+		if (MainTimer.ms200a)
 		{
-			Receive.dataHandled = UART_ReceiveHandler();
-			Receive.byteReceived = 0;
+			if (DDS.setting <= 0) flag = 0;
+			if (DDS.setting >= 10000) flag = 1;
+			if (!flag) DDS.setting += 40; else DDS.setting -= 40;
+			SetOptionDDS(0);
+			Transmit();
+			MainTimer.ms200a = 0;
 		}
 		
 		if (MainTimer.ms1000)
 		{
-			UART_TransmitChar(Terminator);
+			LedInv;
 			MainTimer.ms1000 = 0;
 		}  
 	}
