@@ -42,10 +42,12 @@
 #include <avr/eeprom.h>
 #include "lcd/lcdpcf8574/lcdpcf8574.h"
 
-const unsigned long int ACCUM_MAXIMUM = 500000000;
-//const unsigned int	   FREQUENCY_MAXIMUM = 62500; // timer2 divider 256
-const unsigned int		FREQUENCY_MAXIMUM = 15625; // timer2 divider 1024
- unsigned short flag = 0;
+const unsigned long int		ACCUM_MAXIMUM = 1875000000;
+//const unsigned int		FREQUENCY_MAXIMUM = 7812; // timer2 divider 1024
+//const unsigned int	    FREQUENCY_MAXIMUM = 15625; // timer2 divider 256
+const unsigned long int	FREQUENCY_MAXIMUM = 62500; // timer2 divider 128
+unsigned short direction = 0;
+
 struct
 {
 	unsigned int ms200, ms200a, ms1000;
@@ -107,20 +109,20 @@ struct
 
 ISR(TIMER1_OVF_vect)
 {
-	TCNT1 = 62411;
+	TCNT1 = 64911;
 	MainTimer.ms200++;
-	MainTimer.ms200a++;
-	
-	if (MainTimer.ms200 >= 5)
-	{
-		MainTimer.ms1000++;
-		MainTimer.ms200 = 0;
-	}
+	//MainTimer.ms200a++;
+	//
+	//if (MainTimer.ms200 >= 5)
+	//{
+		//MainTimer.ms1000++;
+		//MainTimer.ms200 = 0;
+	//}
 }
 
 ISR(TIMER2_OVF_vect)
 {
-	TCNT2 = 254;
+	TCNT2 = 255;
 	
 	DDS.accum += DDS.increment;
 	
@@ -148,8 +150,7 @@ void Timer2(bool enable)
 {
 	if (enable)
 	{
-		//TCCR2B = (1<<CS22) | (0<<CS21) | (0<<CS20); // 256 bit scaler
-		TCCR2B = (1<<CS22) | (0<<CS21) | (1<<CS20); // 1024 bit scaler
+		TCCR2B = (1<<CS22) | (0<<CS21) | (1<<CS20); // 128 bit scaler
 		TIMSK2 = (1<<TOIE2);
 		return;
 	}
@@ -251,7 +252,8 @@ void TxString(const char* s)
 void Transmit()
 {
 	static char frequency[20];
-	sprintf(frequency, "%.1f", DDS.setting);
+	sprintf(frequency, "F%.1f$", DDS.setting);
+	TxString(frequency);
 }
 
 unsigned short UART_ReceiveHandler()
@@ -296,7 +298,7 @@ float GetAddendum(void)
 {
 	static unsigned int divider = 0;
 	divider = DDS.setting < 11000 ? 10000 : 100000;
-	return ((((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider)/2;
+	return (((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider;
 }
 
 void SetOptionDDS(short direction)
@@ -364,14 +366,14 @@ int main(void)
 
 	while(1)
 	{		
-		if (MainTimer.ms200a)
+		if (MainTimer.ms200)
 		{
-			if (DDS.setting <= 0) flag = 0;
-			if (DDS.setting >= 10000) flag = 1;
-			if (!flag) DDS.setting += 40; else DDS.setting -= 40;
+			//if (DDS.setting <= 1000) direction = 0;
+			if (DDS.setting >= 26000) direction++;
+			if (!direction) DDS.setting += 5; // else DDS.setting -= 62;
 			SetOptionDDS(0);
 			Transmit();
-			MainTimer.ms200a = 0;
+			MainTimer.ms200 = 0;
 		}
 		
 		if (MainTimer.ms1000)

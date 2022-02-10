@@ -72,8 +72,7 @@
 #include "lcd/lcd.h"
 
 const unsigned long int ACCUM_MAXIMUM = 500000000; 
-//const unsigned int	   FREQUENCY_MAXIMUM = 62500; // timer2 divider 256
-const unsigned int		FREQUENCY_MAXIMUM = 15625; // timer2 divider 1024
+const unsigned int		FREQUENCY_MAXIMUM = 7812;
 
 volatile struct
 {
@@ -200,7 +199,7 @@ ISR(TIMER1_CAPT_vect)
 
 ISR(TIMER2_OVF_vect)
 {
-	TCNT2 = 254;
+	TCNT2 = 255;
 	
 	DDS.accum += DDS.increment;
 	
@@ -327,8 +326,7 @@ void Timer2(bool enable)
 {
 	if (enable)
 	{
-		//TCCR2B = (1<<CS22) | (0<<CS21) | (0<<CS20); // 256 bit scaler 
-		TCCR2B = (1<<CS22) | (0<<CS21) | (1<<CS20); // 1024 bit scaler
+		TCCR2B = (1<<CS22) | (1<<CS21) | (1<<CS20); // 1024 bit scaler
 		TIMSK2 = (1<<TOIE2);
 		return;
 	}
@@ -369,7 +367,7 @@ void USART(unsigned short option)
 		default:
 			UCSR0B = (0 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
 			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-			UBRR0L = 0;
+			UBRR0L = 0;	 // 1 MBit/s
 			break;
 	}
 }
@@ -482,7 +480,7 @@ float GetAddendum(void)
 {
 	static unsigned int divider = 0;
 	divider = DDS.setting < 11000 ? 10000 : 100000;
-	return ((((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider)/2;
+	return (((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider;
 }
 
 void SetOptionDDS(short direction)
@@ -860,9 +858,6 @@ int main(void)
 				MainHandle();
 				break;
 			default:
-				lcd_clrscr();
-				lcd_home();
-				lcd_puts("Range out");
 				break;
 		}
 		
