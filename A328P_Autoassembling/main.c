@@ -703,7 +703,7 @@ void ManualHandle()
 	Encoder.addendumValues[ten] = 1;
 	Encoder.addendumValues[hundred] = 10;
 	Encoder.addendumValues[thousand] = 100;
-	Encoder.addendum = one;
+	Encoder.addendum = thousand;
 	lcd_clrscr();
 	lcd_home();
 	Timer2(true);
@@ -835,7 +835,7 @@ void DisplayReinit()
 int main(void)
 {
 	LedOn;
-	Initialization(Main, Reporcial);
+	Initialization(Manual, Reporcial);
 	lcd_init(LCD_DISP_ON);
 	lcd_clrscr();
 	lcd_home();

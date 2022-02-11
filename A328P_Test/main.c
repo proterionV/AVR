@@ -12,13 +12,16 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= (0<<BIT))  
 
-#define Led     Check(PORTB, 5)
-#define LedOn   High(PORTB, 5)
-#define LedOff  Low(PORTB, 5)
-#define LedInv  Inv(PORTB, 5)
+#define Led     Check(PORTB, 4)
+#define LedOn   High(PORTB, 4)
+#define LedOff  Low(PORTB, 4)
+#define LedInv  Inv(PORTB, 4)
 
 #define True	1
 #define False	0
+
+#define Forward  0
+#define Backyard 1
 
 #define NextLine 0x0A
 #define FillCell 0xFF
@@ -29,6 +32,10 @@
 
 #define DDSOut	 (Check(PORTD, 7))
 #define DDSOutInv Inv(PORTD, 7)
+
+#define ServoUp		 High(PORTB, 1)
+#define	ServoDown 	 Low(PORTB, 1)
+#define ServoCommand (Check(PINC, 0))
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -45,12 +52,13 @@
 const unsigned long int		ACCUM_MAXIMUM = 1875000000;
 //const unsigned int		FREQUENCY_MAXIMUM = 7812; // timer2 divider 1024
 //const unsigned int	    FREQUENCY_MAXIMUM = 15625; // timer2 divider 256
-const unsigned long int	FREQUENCY_MAXIMUM = 62500; // timer2 divider 128
-unsigned short direction = 0;
+const unsigned long int		FREQUENCY_MAXIMUM = 62500; // timer2 divider 128
 
 struct
 {
-	unsigned int ms200, ms200a, ms1000;
+	unsigned int ms40, ms200, ms1000;
+	unsigned int ms16, ms992;
+	bool isr;
 } MainTimer;
 
 struct
@@ -79,7 +87,7 @@ struct
 	unsigned char byte;
 	char bytes[SizeReceiveBuffer];	
 	unsigned short byteReceived, dataHandled;
-} Receive;
+} Rx;
 
 struct
 {
@@ -95,7 +103,7 @@ struct
 struct
 {
 	float setting;
-	unsigned long int accum, increment, counter, frequency;
+	unsigned long int increment, accum, frequency;
 } DDS;
 
 struct
@@ -107,17 +115,31 @@ struct
 	
 } Factors;
 
+ISR(TIMER0_OVF_vect)
+{
+	MainTimer.ms16++;
+	
+	if (MainTimer.ms16 >= 62)
+	{
+		MainTimer.ms992++;
+		MainTimer.ms16 = 0;
+	}
+	
+	TCNT0 = 5;
+}
+
 ISR(TIMER1_OVF_vect)
 {
+	if (MainTimer.ms40 > 4 && MainTimer.ms40 % 5 == 0) MainTimer.ms200++;
+	
+	if (MainTimer.ms40 >= 25)
+	{
+		MainTimer.ms1000++;
+		MainTimer.ms40 = 0;
+	}
+	
+	MainTimer.isr++;
 	TCNT1 = 64911;
-	MainTimer.ms200++;
-	//MainTimer.ms200a++;
-	//
-	//if (MainTimer.ms200 >= 5)
-	//{
-		//MainTimer.ms1000++;
-		//MainTimer.ms200 = 0;
-	//}
 }
 
 ISR(TIMER2_OVF_vect)
@@ -135,8 +157,23 @@ ISR(TIMER2_OVF_vect)
 
 ISR(USART_RX_vect)
 {
-	Receive.byte = UDR0;
-	Receive.byteReceived++;	
+	Rx.byte = UDR0;
+	Rx.byteReceived++;	
+}
+
+void Timer0(bool enable)
+{
+	if (enable)
+	{
+		TCCR0B = (1 << CS02)|(0 << CS01)|(1 << CS00);
+		TIMSK0 = (1 << TOIE0);
+		TCNT0 = 0;
+		return;
+	}
+	
+	TCCR0B = (0 << CS02)|(0 << CS01)|(0 << CS00);
+	TIMSK0 = (0 << TOIE0);
+	TCNT0 = 0;
 }
 
 void Timer1()
@@ -144,6 +181,10 @@ void Timer1()
 	TCCR1B = (1 << CS12)|(0 << CS11)|(1 << CS10);
 	TIMSK1 = (1 << TOIE1);
 	TCNT1 = 62411;
+	
+	//TCCR1A|=(1<<COM1A1)|(1<<WGM11);        //NON Inverted PWM
+	//TCCR1B|=(1<<WGM13)|(1<<WGM12)|(1<<CS11)|(1<<CS10); //PRESCALER=64 MODE 14(FAST PWM)
+	//ICR1=4999;  //fPWM=50Hz
 }
 
 void Timer2(bool enable)
@@ -256,40 +297,40 @@ void Transmit()
 	TxString(frequency);
 }
 
-unsigned short UART_ReceiveHandler()
+unsigned short Receive()
 {
 	static unsigned short queue = 0;
 	static char undefined[SizeTransmitBuffer];
 	
-	if (Receive.byte != Terminator) 
+	if (Rx.byte != Terminator) 
 	{
-		Receive.bytes[queue] = Receive.byte;
+		Rx.bytes[queue] = Rx.byte;
 		queue = (queue + 1) % SizeReceiveBuffer;
 		return False;			
 	}
 	
-	Receive.bytes[++queue] = 0;
+	Rx.bytes[++queue] = 0;
 	
-	if (!(strcasecmp(Receive.bytes, "led")))
+	if (!(strcasecmp(Rx.bytes, "led")))
 	{
 		if (Led) LedOff; else LedOn;
 	}
-	else if (!(strcasecmp(Receive.bytes, "print")))
+	else if (!(strcasecmp(Rx.bytes, "print")))
 	{
 		EraseUnits(0, 0, 0, 0);
 		lcd_gotoxy(0, 0);
-		lcd_puts(Receive.bytes);
+		lcd_puts(Rx.bytes);
 	}
 	else
 	{
 		for (int i=0; i<SizeTransmitBuffer; i++) undefined[0] = 0;
 		strcat(undefined, "Undefined command: \"");
-		strcat(undefined, Receive.bytes);
+		strcat(undefined, Rx.bytes);
 		strcat(undefined, "\"");
 		TxString(undefined);	
 	}
 	
-	for (int i=0; i<SizeReceiveBuffer; i++) Receive.bytes[i] = 0;
+	for (int i=0; i<SizeReceiveBuffer; i++) Rx.bytes[i] = 0;
 	queue = 0;
 	return True;
 }
@@ -305,7 +346,7 @@ void SetOptionDDS(short direction)
 {
 	if (!direction)
 	{
-		//DDS.setting = Measure.frequency * Encoder.multiplier;
+		DDS.setting = Measure.frequency * Encoder.multiplier;
 		DDS.increment = GetAddendum();
 		return;
 	}
@@ -331,6 +372,16 @@ void RegulatorInit(float Kpid, float Kp, float Ki, float Kd)
 	Factors.Kd = Kd;
 }
 
+void StepperStep()
+{
+	static unsigned short direction = Forward;
+	
+	if (DDS.setting <= 0) direction = Forward;
+	if (DDS.setting >= 8000) direction = Backyard;
+	if (direction == Forward) Measure.frequency += 10; //else Measure.frequency -= 10;
+	SetOptionDDS(0);
+}
+
 void Regulator(void)
 {
 	static float I,previousError;
@@ -351,35 +402,81 @@ void Regulator(void)
 	DDS.increment = GetAddendum();
 }
 
+void ServoStep(unsigned int direction)
+{
+	static unsigned short action = 0;
+	
+	if (ServoCommand) action = 0;
+	{
+		if (!ServoCommand) action++;
+		{
+			if (action == 1)
+			{	
+				ServoUp;
+				_delay_ms(1);
+				ServoDown;
+				action = 0;
+			}
+		}
+	}
+}
+
 int main(void)
 {
+	static unsigned short position = 0;
+	
+	DDRC = 0x00;
+	PORTC = 0xFF;
+	
 	DDRB = 0xFF;
 	PORTB = 0x00;
 
 	DDRD = 0xFF;
 	PORTD = 0x00;
 
+	Encoder.multiplier = 1;
+
 	Timer1();
 	Timer2(true);
-	UART();
 	sei();
-
+	   
 	while(1)
-	{		
-		if (MainTimer.ms200)
+	{	
+		if (MainTimer.isr)
 		{
-			//if (DDS.setting <= 1000) direction = 0;
-			if (DDS.setting >= 26000) direction++;
-			if (!direction) DDS.setting += 5; // else DDS.setting -= 62;
-			SetOptionDDS(0);
-			Transmit();
+			StepperStep();
+			MainTimer.ms40++;
+			MainTimer.isr = false;
+		}
+		
+		if (MainTimer.ms200) 
+		{
+			
 			MainTimer.ms200 = 0;
 		}
 		
-		if (MainTimer.ms1000)
-		{
-			LedInv;
+		if (MainTimer.ms1000) 
+		{	
+			//switch(position)
+			//{
+				//case 0:
+					//OCR1A=100;
+					//position = 90;
+					//break;
+				//case 90:
+					//OCR1A=380;
+					//position = 180;
+					//break;
+				//case 180:
+					//OCR1A=600;
+					//position = 0;
+					//break;
+				//default:
+					//position = 0;
+					//break;
+			//}
+			
 			MainTimer.ms1000 = 0;
-		}  
+		}
 	}
 }
