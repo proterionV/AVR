@@ -37,6 +37,9 @@
 #define	ServoDown 	 Low(PORTB, 1)
 #define ServoCommand (Check(PINC, 0))
 
+#define Counter	0
+#define Oscillator 1
+
 #include <xc.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
@@ -176,15 +179,26 @@ void Timer0(bool enable)
 	TCNT0 = 0;
 }
 
-void Timer1()
+void Timer1(unsigned short mode)
 {
-	TCCR1B = (1 << CS12)|(0 << CS11)|(1 << CS10);
-	TIMSK1 = (1 << TOIE1);
-	TCNT1 = 62411;
-	
-	//TCCR1A|=(1<<COM1A1)|(1<<WGM11);        //NON Inverted PWM
-	//TCCR1B|=(1<<WGM13)|(1<<WGM12)|(1<<CS11)|(1<<CS10); //PRESCALER=64 MODE 14(FAST PWM)
-	//ICR1=4999;  //fPWM=50Hz
+	switch(mode)
+	{
+		case Counter:
+			TCCR1B = (1 << CS12)|(0 << CS11)|(1 << CS10);
+			TIMSK1 = (1 << TOIE1);
+			TCNT1 = 62411;
+			break;
+		case Oscillator:
+			TCCR1A|=(1<<COM1A1)|(1<<WGM11);        //NON Inverted PWM
+			TCCR1B|=(1<<WGM13)|(1<<WGM12)|(1<<CS11)|(1<<CS10); //PRESCALER=64 MODE 14(FAST PWM)
+			ICR1=4999;  //fPWM=50Hz	
+			break;
+		default:
+			TCCR1B = (0 << CS12)|(0 << CS11)|(0 << CS10);
+			TIMSK1 = (0 << TOIE1);
+			TCNT1 = 62411;
+			break;
+	}
 }
 
 void Timer2(bool enable)
@@ -433,18 +447,40 @@ int main(void)
 
 	DDRD = 0xFF;
 	PORTD = 0x00;
-
-	Encoder.multiplier = 1;
-
-	Timer1();
-	Timer2(true);
+	
+	Timer0(true);
+	Timer1(Oscillator);
 	sei();
 	   
 	while(1)
 	{	
+		if (MainTimer.ms992)
+		{
+			switch(position)
+			{
+				case 0:
+					OCR1A=100;
+					position = 90;
+					break;
+				case 90:
+					OCR1A=380;
+					position = 180;
+					break;
+				case 180:
+					OCR1A=600;
+					position = 0;
+					break;
+				default:
+					position = 0;
+					break;
+			}
+			
+			MainTimer.ms992 = 0;
+		}
+		
 		if (MainTimer.isr)
 		{
-			StepperStep();
+			//StepperStep();
 			MainTimer.ms40++;
 			MainTimer.isr = false;
 		}
@@ -457,24 +493,24 @@ int main(void)
 		
 		if (MainTimer.ms1000) 
 		{	
-			//switch(position)
-			//{
-				//case 0:
-					//OCR1A=100;
-					//position = 90;
-					//break;
-				//case 90:
-					//OCR1A=380;
-					//position = 180;
-					//break;
-				//case 180:
-					//OCR1A=600;
-					//position = 0;
-					//break;
-				//default:
-					//position = 0;
-					//break;
-			//}
+			switch(position)
+			{
+				case 0:
+				OCR1A=100;
+				position = 90;
+				break;
+				case 90:
+				OCR1A=380;
+				position = 180;
+				break;
+				case 180:
+				OCR1A=600;
+				position = 0;
+				break;
+				default:
+				position = 0;
+				break;
+			}
 			
 			MainTimer.ms1000 = 0;
 		}
