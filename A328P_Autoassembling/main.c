@@ -33,9 +33,13 @@
 #define PhaseOff Low(PORTD, 6)
 #define PhaseInv Inv(PORTD, 6)
 
-#define Init	 2
+#define Init	 0
 #define On		 1
-#define Off		 0
+#define Off		 2
+#define TxOn	 3
+#define TxOff	 4
+#define RxOn	 5
+#define RxOff	 6
 
 #define Start	 1
 #define Stop	 0
@@ -71,12 +75,12 @@
 #include <avr/eeprom.h>
 #include "lcd/lcd.h"
 
-const unsigned long int ACCUM_MAXIMUM = 500000000; 
+const unsigned long int ACCUM_MAXIMUM = 1000000000; 
 const unsigned int		FREQUENCY_MAXIMUM = 7812;
 
 volatile struct
 {
-	unsigned int ms16, ms16s, ms160, ms992, sec, min;
+	unsigned int ms16, ms160, ms992;
 	bool displayReinit;
 } MainTimer;
 
@@ -156,18 +160,16 @@ volatile struct
 ISR(TIMER0_OVF_vect)
 {
 	MainTimer.ms16++;
-	MainTimer.ms16s++;
 
-	if (MainTimer.ms16 >= 10)
+	if (MainTimer.ms16 % 10 == 0)
 	{
 		if ((Menu.mode == Manual) || (Menu.mode == Auto && !(AutoMode.state == Waiting))) MainTimer.ms160++;
-		MainTimer.ms16 = 0;
 	}
 	
-	if (MainTimer.ms16s >= 62)
+	if (MainTimer.ms16 >= 62)
 	{
 		MainTimer.ms992++;
-		MainTimer.ms16s = 0;
+		MainTimer.ms16 = 0;
 	}
 	
 	TCNT0 = 5;	
@@ -217,7 +219,7 @@ ISR(ADC_vect)
 	Convert.done++;
 }
 
-ISR(USART0_RX_vect)
+ISR(USART_RX_vect)
 {
 	Rx.byte = UDR0;
 	Rx.byteReceived++;
@@ -358,16 +360,28 @@ void USART(unsigned short option)
 {
 	switch (option)
 	{
-		case 0:
-			UCSR0B |= (0 << TXEN0);
-			break;
-		case 1:
+		case TxOn:
 			UCSR0B |= (1 << TXEN0);
 			break;
+		case TxOff:
+			UCSR0B |= (0 << TXEN0);
+			break;
+		case RxOn:
+			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			break;
+		case RxOff:
+			UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			break;
+		case On:
+			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			break;
+		case Off:
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			break;
 		default:
-			UCSR0B = (0 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
 			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-			UBRR0L = 0;	 // 1 MBit/s
+			UBRR0  =  0;
 			break;
 	}
 }
@@ -385,7 +399,7 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char buffer[TxBufferSize];
+	static char buffer[TxBufferSize] = { 0 };
 	static char tension[20], frequency[20];
 	
 	if (Menu.mode == Manual && !Phase) return;
@@ -402,36 +416,39 @@ void Transmit()
 
 void Receive()
 {
-	static char RxBuffer[RxBufferSize];
-	static char TxBuffer[TxBufferSize] = "error: ";
-	static char RxCharBuffer[2];
+	static char RxBuffer[RxBufferSize] = { 0 };
+	static char TxBuffer[TxBufferSize] = { 0 };
+	static unsigned int index = 0;
 	
-	RxCharBuffer[0] = Rx.byte;
-	
-	if (Rx.byte != Terminator)
+	if (!(Rx.byte == Terminator))
 	{
-		strcat(RxBuffer, RxCharBuffer);
+		if (index >= RxBufferSize-1)
+		{
+			strcpy(TxBuffer, "error: overflow");
+			TxString(TxBuffer);
+			memset(TxBuffer, 0, TxBufferSize);
+			index = 0;
+			return;	
+		}
+
+		RxBuffer[index++] = Rx.byte;
 		return;
 	}
 	
-	if (!(strcasecmp(RxBuffer, "led")))
+	RxBuffer[index] = StringEnd;
+	index = 0;
+	
+	if (!(strcasecmp(RxBuffer, "led"))) 
 	{
-		if (Led) LedOff; else LedOn;
-	}
-	else if (!(strcasecmp(RxBuffer, "print")))
-	{
-		EraseUnits(0, 0, 0, 0);
-		lcd_gotoxy(0, 0);
-		lcd_puts(RxBuffer);
+		LedInv;
 	}
 	else
 	{
+		strcpy(TxBuffer, "unknown: ");
 		strcat(TxBuffer, RxBuffer);
 		TxString(TxBuffer);
-		memset(TxBuffer, 9, TxBufferSize);
+		memset(TxBuffer, 0, TxBufferSize);
 	}
-	
-	memset(RxBuffer, 0, RxBufferSize);
 }
 
 float Kalman(float value, bool reset)
@@ -490,7 +507,7 @@ void SetOptionDDS(short direction)
 		if (direction > 0) DDS.setting += DDS.setting + Encoder.addendumValues[Encoder.addendum] <= FREQUENCY_MAXIMUM ? Encoder.addendumValues[Encoder.addendum] : 0;
 		if (direction < 0) DDS.setting -= DDS.setting - Encoder.addendumValues[Encoder.addendum] < 0 ? DDS.setting : Encoder.addendumValues[Encoder.addendum];  
 		DDS.increment = GetAddendum();
-		if (DDS.setting < 0.1) PhaseOff; else PhaseOn;
+		if (DDS.setting < 0.1) { PhaseOff; Timer2(false); } else { Timer2(true); PhaseOn; }
 		return;
 	}
 	
@@ -678,7 +695,7 @@ void MainHandle()
 	Menu.mainActive = true;
 	Timer1(false);
 	Timer2(false);
-	USART(Off);
+	USART(On);
 	Kalman(0, true);
 	MovAvgFrq(0, true);
 	DDS.setting = 0;
@@ -706,8 +723,7 @@ void ManualHandle()
 	Encoder.addendum = thousand;
 	lcd_clrscr();
 	lcd_home();
-	Timer2(true);
-	USART(On);
+	USART(RxOff);
 	Menu.manualActive = true;
 	Encoder.addendumChanged = true;
 	MainTimer.displayReinit = true;
@@ -754,7 +770,7 @@ void AutoHandle()
 		AutoMode.state = Acceleration;
 		Timer1(true);
 		Timer2(true);
-		USART(On);
+		USART(RxOff);
 	}
 	
 	if ((AutoMode.state == Acceleration) && (AutoMode.delayCount > AutoMode.startDelay))
@@ -796,7 +812,7 @@ void Initialization(enum Modes mode, unsigned int method)
 	DDRC = 0b00111100;
 	PORTC = 0b11000000;
 	
-	DDRD = 0b11000011;
+	DDRD = 0b11000010;
 	PORTD = 0b00111111;
 
 	strcpy(Menu.modeNames[0], "Manual"); // where aString is either an array or pointer to char
@@ -825,20 +841,10 @@ void MenuReset()
 	}
 }
 
-void DisplayReinit()
-{
-	lcd_init(LCD_DISP_ON);
-	lcd_clrscr();
-	lcd_home();	
-}
-
 int main(void)
 {
-	LedOn;
-	Initialization(Manual, Reporcial);
+	Initialization(Main, Reporcial);
 	lcd_init(LCD_DISP_ON);
-	lcd_clrscr();
-	lcd_home();
 	Timer0(true);
 	Converter(Init);
 	USART(Init);
@@ -883,8 +889,6 @@ int main(void)
 		if (MainTimer.ms992)
 		{
 			DisplayPrint();
-			TxChar(Terminator);
-			if (Led) LedOff; else LedOn;
 			MainTimer.ms992 = 0;
 			
 			if (Menu.mode == Auto && ((AutoMode.state == Acceleration) || (AutoMode.state == Deceleration)))

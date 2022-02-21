@@ -12,10 +12,10 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= (0<<BIT))  
 
-#define Led     Check(PORTB, 4)
-#define LedOn   High(PORTB, 4)
-#define LedOff  Low(PORTB, 4)
-#define LedInv  Inv(PORTB, 4)
+#define Led     Check(PORTB, 5)
+#define LedOn   High(PORTB, 5)
+#define LedOff  Low(PORTB, 5)
+#define LedInv  Inv(PORTB, 5)
 
 #define True	1
 #define False	0
@@ -23,12 +23,16 @@
 #define Forward  0
 #define Backyard 1
 
+#define Init 2
+#define On	 1
+#define Off  0
+
 #define NextLine 0x0A
 #define FillCell 0xFF
 #define Terminator '$'
 
-#define SizeReceiveBuffer 100
-#define SizeTransmitBuffer 100
+#define RxBufferSize 100
+#define TxBufferSize 100
 
 #define DDSOut	 (Check(PORTD, 7))
 #define DDSOutInv Inv(PORTD, 7)
@@ -54,8 +58,8 @@
 
 const unsigned long int		ACCUM_MAXIMUM = 1875000000;
 //const unsigned int		FREQUENCY_MAXIMUM = 7812; // timer2 divider 1024
-//const unsigned int	    FREQUENCY_MAXIMUM = 15625; // timer2 divider 256
-const unsigned long int		FREQUENCY_MAXIMUM = 62500; // timer2 divider 128
+const unsigned int	    FREQUENCY_MAXIMUM = 31250; // timer2 divider 256
+//const unsigned long int   FREQUENCY_MAXIMUM = 62500; // timer2 divider 128
 
 struct
 {
@@ -88,8 +92,7 @@ struct
 struct
 {
 	unsigned char byte;
-	char bytes[SizeReceiveBuffer];	
-	unsigned short byteReceived, dataHandled;
+	unsigned short byteReceived;
 } Rx;
 
 struct
@@ -133,7 +136,7 @@ ISR(TIMER0_OVF_vect)
 
 ISR(TIMER1_OVF_vect)
 {
-	if (MainTimer.ms40 > 4 && MainTimer.ms40 % 5 == 0) MainTimer.ms200++;
+	if (MainTimer.ms40 % 5 == 0) MainTimer.ms200++;
 	
 	if (MainTimer.ms40 >= 25)
 	{
@@ -141,7 +144,7 @@ ISR(TIMER1_OVF_vect)
 		MainTimer.ms40 = 0;
 	}
 	
-	MainTimer.isr++;
+	MainTimer.isr = true;
 	TCNT1 = 64911;
 }
 
@@ -205,7 +208,7 @@ void Timer2(bool enable)
 {
 	if (enable)
 	{
-		TCCR2B = (1<<CS22) | (0<<CS21) | (1<<CS20); // 128 bit scaler
+		TCCR2B = (1<<CS22) | (1<<CS21) | (0<<CS20); // 128 bit scaler
 		TIMSK2 = (1<<TOIE2);
 		return;
 	}
@@ -274,23 +277,32 @@ void EraseUnits(int x, int y, int offset, float count)
 	}
 }
 
-void DisplayPrint(unsigned short cancel)
+void DisplayPrint()
 {
-	static char sec[10];
+	static char frequency[20];
 	
-	if (cancel) return;
-	
-	EraseUnits(0, 1, 0, Watch.sec);
-	sprintf(sec,"%.d", Watch.sec);
-	lcd_gotoxy(0, 1);
-	lcd_puts(sec);
+	EraseUnits(0, 0, 0, DDS.setting);
+	sprintf(frequency, "F%.1f$", DDS.setting);
+	lcd_gotoxy(0, 0);
+	lcd_puts(frequency);
 }
 
-void UART()
+void USART(unsigned short option)
 {
-	UCSR0B = (1 << RXEN0) | (1 << TXEN0) | (1 << RXCIE0);
-	UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-	UBRR0L = 0;
+	switch (option)
+	{
+		case 0:
+			UCSR0B |= (0 << TXEN0);
+			break;
+		case 1:
+			UCSR0B |= (1 << TXEN0);
+			break;
+		default:
+			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+			UBRR0L = 0;	 // 1 MBit/s
+			break;
+	}
 }
 
 void TxChar(unsigned char c)
@@ -311,43 +323,33 @@ void Transmit()
 	TxString(frequency);
 }
 
-unsigned short Receive()
-{
-	static unsigned short queue = 0;
-	static char undefined[SizeTransmitBuffer];
-	
-	if (Rx.byte != Terminator) 
-	{
-		Rx.bytes[queue] = Rx.byte;
-		queue = (queue + 1) % SizeReceiveBuffer;
-		return False;			
-	}
-	
-	Rx.bytes[++queue] = 0;
-	
-	if (!(strcasecmp(Rx.bytes, "led")))
-	{
-		if (Led) LedOff; else LedOn;
-	}
-	else if (!(strcasecmp(Rx.bytes, "print")))
-	{
-		EraseUnits(0, 0, 0, 0);
-		lcd_gotoxy(0, 0);
-		lcd_puts(Rx.bytes);
-	}
-	else
-	{
-		for (int i=0; i<SizeTransmitBuffer; i++) undefined[0] = 0;
-		strcat(undefined, "Undefined command: \"");
-		strcat(undefined, Rx.bytes);
-		strcat(undefined, "\"");
-		TxString(undefined);	
-	}
-	
-	for (int i=0; i<SizeReceiveBuffer; i++) Rx.bytes[i] = 0;
-	queue = 0;
-	return True;
-}
+void Receive()
+ {
+	 static char RxBuffer[RxBufferSize];
+	 static char TxBuffer[TxBufferSize] = "error: ";
+	 static char RxCharBuffer[2];
+	 
+	 RxCharBuffer[0] = Rx.byte;
+	 
+	 if (RxCharBuffer[0] != Terminator)
+	 { 
+		 strcat(RxBuffer, RxCharBuffer);
+		 return;
+	 }
+	 
+	 if (!(strcasecmp(RxBuffer, "led")))
+	 {
+		 LedInv;
+	 }
+	 else
+	 {
+		 strcat(TxBuffer, RxBuffer);
+		 TxString(TxBuffer);
+		 memset(TxBuffer, 9, TxBufferSize);
+	 }
+	 
+	 memset(RxBuffer, 0, RxBufferSize);
+ }
 
 float GetAddendum(void)
 {
@@ -360,14 +362,14 @@ void SetOptionDDS(short direction)
 {
 	if (!direction)
 	{
-		DDS.setting = Measure.frequency * Encoder.multiplier;
+		DDS.setting = Measure.frequency;// * Encoder.multiplier;
 		DDS.increment = GetAddendum();
 		return;
 	}
 	
 	if (direction > 0)
 	{
-		Encoder.multiplier += DDS.setting >= 31250 ? 0 : Encoder.addendumValues[Encoder.addendum];
+		Encoder.multiplier += DDS.setting >= FREQUENCY_MAXIMUM ? 0 : Encoder.addendumValues[Encoder.addendum];
 		eeprom_update_float((float*)1, Encoder.multiplier);
 	}
 	
@@ -389,10 +391,10 @@ void RegulatorInit(float Kpid, float Kp, float Ki, float Kd)
 void StepperStep()
 {
 	static unsigned short direction = Forward;
-	
-	if (DDS.setting <= 0) direction = Forward;
-	if (DDS.setting >= 8000) direction = Backyard;
-	if (direction == Forward) Measure.frequency += 10; //else Measure.frequency -= 10;
+
+	if (DDS.setting <= 0 && direction == Backyard) direction = Forward;
+	if (DDS.setting >= 20000 && direction == Forward) direction = Backyard;
+	if (direction == Forward) Measure.frequency++;// else Measure.frequency--;
 	SetOptionDDS(0);
 }
 
@@ -437,50 +439,32 @@ void ServoStep(unsigned int direction)
 
 int main(void)
 {
-	static unsigned short position = 0;
+	DDRB = 0b00111110;
+	PORTB = 0b00000001;
 	
-	DDRC = 0x00;
-	PORTC = 0xFF;
+	DDRC = 0b00111100;
+	PORTC = 0b11000000;
 	
-	DDRB = 0xFF;
-	PORTB = 0x00;
-
-	DDRD = 0xFF;
-	PORTD = 0x00;
+	DDRD = 0b11000010;
+	PORTD = 0b00111111;
 	
-	Timer0(true);
-	Timer1(Oscillator);
+	Timer0(false);
+	Timer1(Counter);
+	Timer2(true);
+	USART(Init);
 	sei();
 	   
 	while(1)
 	{	
-		if (MainTimer.ms992)
+		if (Rx.byteReceived)
 		{
-			switch(position)
-			{
-				case 0:
-					OCR1A=100;
-					position = 90;
-					break;
-				case 90:
-					OCR1A=380;
-					position = 180;
-					break;
-				case 180:
-					OCR1A=600;
-					position = 0;
-					break;
-				default:
-					position = 0;
-					break;
-			}
-			
-			MainTimer.ms992 = 0;
+			Receive();
+			Rx.byteReceived = 0;
 		}
 		
 		if (MainTimer.isr)
 		{
-			//StepperStep();
+			StepperStep();
 			MainTimer.ms40++;
 			MainTimer.isr = false;
 		}
@@ -493,25 +477,7 @@ int main(void)
 		
 		if (MainTimer.ms1000) 
 		{	
-			switch(position)
-			{
-				case 0:
-				OCR1A=100;
-				position = 90;
-				break;
-				case 90:
-				OCR1A=380;
-				position = 180;
-				break;
-				case 180:
-				OCR1A=600;
-				position = 0;
-				break;
-				default:
-				position = 0;
-				break;
-			}
-			
+			Transmit();
 			MainTimer.ms1000 = 0;
 		}
 	}
