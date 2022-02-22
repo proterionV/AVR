@@ -49,6 +49,7 @@
 
 #define FreqArraySize	150
 #define TensArraySize   25
+
 #define RxBufferSize    100
 #define TxBufferSize	100
 
@@ -212,7 +213,7 @@ ISR(TIMER2_OVF_vect)
 ISR(ADC_vect)
 {
 	ADCSRA |= (0<<ADSC);
-	Convert.value = ((signed)ADCW-21);
+	Convert.value = ADCW;
 	Convert.done++;
 }
 
@@ -593,7 +594,7 @@ void Calculation(unsigned short parameter)
 			return;
 		}
 		
-		Convert.tension = Menu.mode == Main ? 0 : MovAvgTns(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, false);
+		Convert.tension = Menu.mode == Main ? 0 : MovAvgTns(Convert.value < 10 ? 0 : (Convert.value*0.0048828125)*2908.f, false);
 		return;
 	}
 	
