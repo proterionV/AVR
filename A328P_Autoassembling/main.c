@@ -41,9 +41,6 @@
 #define RxOn	 5
 #define RxOff	 6
 
-#define Start	 1
-#define Stop	 0
-
 #define	Tension		1
 #define Frequency 	0
 
@@ -51,7 +48,7 @@
 #define Reporcial 	0
 
 #define FreqArraySize	150
-#define TensArraySize   50
+#define TensArraySize   25
 #define RxBufferSize    100
 #define TxBufferSize	100
 
@@ -342,15 +339,15 @@ void Converter(unsigned short option)
 {
 	switch (option)
 	{
-		case 0:
+		case Off:
 			ADCSRA |= (0<<ADSC);
 			break;
-		case 1:
+		case On:
 			ADCSRA |= (1<<ADSC);
 			break;
 		default:
 			ADCSRA = 0x8F;
-			ADMUX = 0x40;
+			ADMUX = 0x41;
 			ADCSRA |= (0<<ADSC);
 			break;
 	}
@@ -472,7 +469,7 @@ float Kalman(float value, bool reset)
 	return CurrentEstimate;
 }
 
-float MovAvgFrq(float value, bool reset)
+float MovAvgTns(float value, bool reset)
 {
 	static float values[TensArraySize];
 	static unsigned short index = 0;
@@ -590,19 +587,13 @@ void Calculation(unsigned short parameter)
 {
 	if (parameter == Tension)
 	{
-		if (AutoMode.state == Deceleration)
+		if (Menu.mode == Auto && (AutoMode.state == Deceleration || AutoMode.state == Waiting))
 		{
-			Convert.tension = MovAvgFrq(0, false);
+			Convert.tension = MovAvgTns(0, false);
 			return;
 		}
 		
-		if (AutoMode.state == Waiting)
-		{
-			Convert.tension = MovAvgFrq(0, false);
-			return;
-		}
-		
-		Convert.tension = Menu.mode == Main ? 0 : MovAvgFrq(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, 0);
+		Convert.tension = Menu.mode == Main ? 0 : MovAvgTns(Convert.value < 1 ? 0 : (Convert.value*0.0048828125)*2908.f, false);
 		return;
 	}
 	
@@ -625,7 +616,7 @@ void Calculation(unsigned short parameter)
 		return; // return 65536 - (Measure.ticksCurrent + 10); for generation during got period (timer 3 must be On)
 	}
 	
-	Measure.frequency = MovAvgFrq((float)Measure.pulseCount*5.f, 0);
+	//Measure.frequency = MovAvgFrq((float)Measure.pulseCount*5.f, 0);
 	Measure.pulseCount = 0;
 	return;	 // 0;
 }
@@ -697,7 +688,7 @@ void MainHandle()
 	Timer2(false);
 	USART(On);
 	Kalman(0, true);
-	MovAvgFrq(0, true);
+	MovAvgTns(0, true);
 	DDS.setting = 0;
 	DDS.increment = 0;
 	Convert.value = 0;
@@ -749,6 +740,7 @@ bool AutoInit()
 	MainTimer.displayReinit = true;
 	lcd_clrscr();
 	lcd_home();	
+	USART(RxOff);
 	return true;
 }
 
@@ -770,7 +762,6 @@ void AutoHandle()
 		AutoMode.state = Acceleration;
 		Timer1(true);
 		Timer2(true);
-		USART(RxOff);
 	}
 	
 	if ((AutoMode.state == Acceleration) && (AutoMode.delayCount > AutoMode.startDelay))
@@ -792,9 +783,8 @@ void AutoHandle()
 		LedOff;
 		Timer1(false);
 		Timer2(false);
-		USART(Off);
 		Kalman(0, true);
-		MovAvgFrq(0, true);
+		MovAvgTns(0, true);
 		AutoMode.state = Waiting;
 		AutoMode.delayCount = 0;
 		DDS.setting = 0;
@@ -843,7 +833,7 @@ void MenuReset()
 
 int main(void)
 {
-	Initialization(Main, Reporcial);
+	Initialization(Auto, Reporcial);
 	lcd_init(LCD_DISP_ON);
 	Timer0(true);
 	Converter(Init);
@@ -875,7 +865,7 @@ int main(void)
 		
 		if (MainTimer.ms160)
 		{
-			Converter(Start);
+			Converter(On);
 			Transmit();
 			MainTimer.ms160 = 0;
 		}

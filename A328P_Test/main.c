@@ -121,6 +121,13 @@ struct
 	
 } Factors;
 
+volatile struct
+{
+	float tension;
+	signed int value;
+	unsigned short done;
+} Convert;
+
 ISR(TIMER0_OVF_vect)
 {
 	MainTimer.ms16++;
@@ -165,6 +172,13 @@ ISR(USART_RX_vect)
 {
 	Rx.byte = UDR0;
 	Rx.byteReceived++;	
+}
+
+ISR(ADC_vect)
+{
+	ADCSRA |= (0<<ADSC);
+	Convert.value = ((signed)ADCW-21);
+	Convert.done++;
 }
 
 void Timer0(bool enable)
@@ -287,6 +301,24 @@ void DisplayPrint()
 	lcd_puts(frequency);
 }
 
+void Converter(unsigned short option)
+{
+	switch (option)
+	{
+		case Off:
+			ADCSRA |= (0<<ADSC);
+			break;
+		case On:
+			ADCSRA |= (1<<ADSC);
+			break;
+		default:
+			ADCSRA = 0x8F;
+			ADMUX = 0x40;
+			ADCSRA |= (0<<ADSC);
+			break;
+	}
+}
+
 void USART(unsigned short option)
 {
 	switch (option)
@@ -318,9 +350,10 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char frequency[20];
+	static char frequency[20], tension[20];
 	sprintf(frequency, "F%.1f$", DDS.setting);
-	TxString(frequency);
+	sprintf(tension, " %.1f ", Convert.tension);
+	TxString(tension);
 }
 
 void Receive()
@@ -450,8 +483,9 @@ int main(void)
 	
 	Timer0(false);
 	Timer1(Counter);
-	Timer2(true);
+	Timer2(false);
 	USART(Init);
+	Converter(Init);
 	sei();
 	   
 	while(1)
@@ -469,15 +503,22 @@ int main(void)
 			MainTimer.isr = false;
 		}
 		
+		if (Convert.done)
+		{
+			Convert.tension = Convert.value*0.0048828125;
+			Transmit();
+			Convert.done = 0;
+		}
+		
 		if (MainTimer.ms200) 
 		{
-			
+			Converter(On);
 			MainTimer.ms200 = 0;
 		}
 		
 		if (MainTimer.ms1000) 
 		{	
-			Transmit();
+			LedInv;
 			MainTimer.ms1000 = 0;
 		}
 	}
