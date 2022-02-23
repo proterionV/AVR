@@ -48,7 +48,7 @@
 #define Reporcial 	0
 
 #define FreqArraySize	150
-#define TensArraySize   25
+#define TensArraySize   2
 
 #define RxBufferSize    100
 #define TxBufferSize	100
@@ -266,7 +266,7 @@ void DisplayPrint()
 	lcd_gotoxy(0, 0);
 	lcd_puts(setting);
 	
-	sprintf(tension, "%.1f", Convert.tension);
+	sprintf(tension, "%.2f", Convert.tension);
 	EraseUnits(0, 1, 2, Convert.tension);
 	lcd_gotoxy(0, 1);
 	lcd_puts(tension);
@@ -478,7 +478,7 @@ float MovAvgTns(float value, bool reset)
 	
 	if (reset)
 	{
-		for (int i=0; i < TensArraySize; i++) values[i] = 0;
+		memset(values, 0, TensArraySize);
 		result = 0;
 		index = 0;
 		return 0;
@@ -586,6 +586,8 @@ void EncoderHandler(void)
 
 void Calculation(unsigned short parameter)
 {
+	static int voltage = 0;
+	
 	if (parameter == Tension)
 	{
 		if (Menu.mode == Auto && (AutoMode.state == Deceleration || AutoMode.state == Waiting))
@@ -594,7 +596,12 @@ void Calculation(unsigned short parameter)
 			return;
 		}
 		
-		Convert.tension = Menu.mode == Main ? 0 : MovAvgTns(Convert.value < 10 ? 0 : (Convert.value*0.0048828125)*2908.f, false);
+		if (Menu.mode == Main) { Convert.tension = 0; voltage = 0; return; }
+		
+		voltage = Convert.value*0.0048828125;
+		Convert.tension = MovAvgTns(voltage < 0.12 ? 0 : voltage*1454.5454545454545454545454545455, false);
+		voltage = 0;
+		
 		return;
 	}
 	
@@ -834,7 +841,7 @@ void MenuReset()
 
 int main(void)
 {
-	Initialization(Auto, Reporcial);
+	Initialization(Main, Reporcial);
 	lcd_init(LCD_DISP_ON);
 	Timer0(true);
 	Converter(Init);

@@ -124,7 +124,7 @@ struct
 volatile struct
 {
 	float tension;
-	signed int value;
+	int value;
 	unsigned short done;
 } Convert;
 
@@ -177,7 +177,7 @@ ISR(USART_RX_vect)
 ISR(ADC_vect)
 {
 	ADCSRA |= (0<<ADSC);
-	Convert.value = ((signed)ADCW-21);
+	Convert.value = ADCW;
 	Convert.done++;
 }
 
@@ -313,7 +313,7 @@ void Converter(unsigned short option)
 			break;
 		default:
 			ADCSRA = 0x8F;
-			ADMUX = 0x40;
+			ADMUX = 0x41;
 			ADCSRA |= (0<<ADSC);
 			break;
 	}
