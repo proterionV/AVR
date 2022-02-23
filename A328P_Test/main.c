@@ -352,7 +352,7 @@ void Transmit()
 {
 	static char frequency[20], tension[20];
 	sprintf(frequency, "F%.1f$", DDS.setting);
-	sprintf(tension, " %.1f ", Convert.tension);
+	sprintf(tension, "Tn%.2f", Convert.tension);
 	TxString(tension);
 }
 
@@ -472,6 +472,8 @@ void ServoStep(unsigned int direction)
 
 int main(void)
 {
+	float voltage = 0;
+	
 	DDRB = 0b00111110;
 	PORTB = 0b00000001;
 	
@@ -505,8 +507,8 @@ int main(void)
 		
 		if (Convert.done)
 		{
-			Convert.tension = Convert.value*0.0048828125;
-			Transmit();
+			voltage	= Convert.value*0.0048828125;
+			Convert.tension = voltage >= 0.11 ? (voltage-0.11)*1445.f : 0;
 			Convert.done = 0;
 		}
 		
@@ -519,6 +521,7 @@ int main(void)
 		if (MainTimer.ms1000) 
 		{	
 			LedInv;
+			Transmit();
 			MainTimer.ms1000 = 0;
 		}
 	}
