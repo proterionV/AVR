@@ -507,8 +507,7 @@ int main(void)
 		
 		if (Convert.done)
 		{
-			voltage	= Convert.value*0.0048828125;
-			Convert.tension = voltage >= 0.11 ? (voltage-0.11)*1445.f : 0;
+			Convert.tension = Convert.value;
 			Convert.done = 0;
 		}
 		

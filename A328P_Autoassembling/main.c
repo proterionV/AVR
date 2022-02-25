@@ -48,7 +48,7 @@
 #define Reporcial 	0
 
 #define FreqArraySize	150
-#define TensArraySize   2
+#define TensArraySize   30
 
 #define RxBufferSize    100
 #define TxBufferSize	100
@@ -266,7 +266,7 @@ void DisplayPrint()
 	lcd_gotoxy(0, 0);
 	lcd_puts(setting);
 	
-	sprintf(tension, "%.2f", Convert.tension);
+	sprintf(tension, "%.1f", Convert.tension);
 	EraseUnits(0, 1, 2, Convert.tension);
 	lcd_gotoxy(0, 1);
 	lcd_puts(tension);
@@ -598,8 +598,8 @@ void Calculation(unsigned short parameter)
 		
 		if (Menu.mode == Main) { Convert.tension = 0; voltage = 0; return; }
 		
-		voltage = Convert.value*0.0048828125;
-		Convert.tension = MovAvgTns(voltage < 0.12 ? 0 : voltage*1454.5454545454545454545454545455, false);
+		voltage = Convert.value-18;
+		Convert.tension = MovAvgTns(voltage < 1 ? 0 : (voltage*7.)-7, false);
 		voltage = 0;
 		
 		return;
@@ -740,8 +740,8 @@ bool AutoInit()
 	AutoMode.state = Waiting;
 	AutoMode.stateChanging = false;
 	AutoMode.stateChanged = false;
-	AutoMode.startDelay = 10; // eeprom_read_dword(2);
-	AutoMode.stopDelay = 3;  // eeprom_read_dword(3);
+	AutoMode.startDelay = 30; // eeprom_read_dword(2);
+	AutoMode.stopDelay = 2;  // eeprom_read_dword(3);
 	AutoMode.delayCount = 0;
 	Encoder.multiplier = eeprom_read_float((float*)1);
 	Encoder.multiplierChanged = true;
@@ -841,7 +841,7 @@ void MenuReset()
 
 int main(void)
 {
-	Initialization(Main, Reporcial);
+	Initialization(Auto, Reporcial);
 	lcd_init(LCD_DISP_ON);
 	Timer0(true);
 	Converter(Init);
