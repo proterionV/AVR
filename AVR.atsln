@@ -33,12 +33,6 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "lcd1602", "lcd1602", "{E4C8
 		A2560_Autoassembling\lcd\lcd.h = A2560_Autoassembling\lcd\lcd.h
 	EndProjectSection
 EndProject
-Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "uart", "uart", "{6302972F-64CD-410D-ADEE-4BD464E762A0}"
-	ProjectSection(SolutionItems) = preProject
-		..\AVR old\Microchip\Libraries\uart\uart.c = ..\AVR old\Microchip\Libraries\uart\uart.c
-		..\AVR old\Microchip\Libraries\uart\uart.h = ..\AVR old\Microchip\Libraries\uart\uart.h
-	EndProjectSection
-EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Notes", "Notes", "{6A600507-4AF9-40BD-A275-EE66B8AFD88B}"
 	ProjectSection(SolutionItems) = preProject
 		DDS Description.c = DDS Description.c
@@ -46,6 +40,18 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Notes", "Notes", "{6A600507
 	EndProjectSection
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Autoassembling", "A328P_Autoassembling\A328P_Autoassembling.cproj", "{73889FEE-863F-4ED9-A8A3-CAB8819A58A6}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "uart", "uart", "{4DE09882-178B-43FA-AEB6-7F9DF21FAF73}"
+	ProjectSection(SolutionItems) = preProject
+		..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.c = ..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.c
+		..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.h = ..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.h
+	EndProjectSection
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dht", "dht", "{D265520E-71CA-4444-A9B3-13776C9E11C0}"
+	ProjectSection(SolutionItems) = preProject
+		..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.c = ..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.c
+		..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.h = ..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.h
+	EndProjectSection
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -74,6 +80,7 @@ Global
 		{994332E8-267F-47CB-B59C-223384918F86} = {114D43B6-E66F-4C46-BF92-A628000E558A}
 		{355DAC14-7EEA-406D-9B34-FAC5B32A9E9E} = {114D43B6-E66F-4C46-BF92-A628000E558A}
 		{E4C88E04-DE02-46E0-BD71-F65B4CDBF88F} = {114D43B6-E66F-4C46-BF92-A628000E558A}
-		{6302972F-64CD-410D-ADEE-4BD464E762A0} = {114D43B6-E66F-4C46-BF92-A628000E558A}
+		{4DE09882-178B-43FA-AEB6-7F9DF21FAF73} = {114D43B6-E66F-4C46-BF92-A628000E558A}
+		{D265520E-71CA-4444-A9B3-13776C9E11C0} = {114D43B6-E66F-4C46-BF92-A628000E558A}
 	EndGlobalSection
 EndGlobal

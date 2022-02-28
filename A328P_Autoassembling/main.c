@@ -694,7 +694,7 @@ void MainHandle()
 	Menu.mainActive = true;
 	Timer1(false);
 	Timer2(false);
-	USART(On);
+	//USART(On);
 	Kalman(0, true);
 	MovAvgTns(0, true);
 	DDS.setting = 0;
@@ -722,7 +722,7 @@ void ManualHandle()
 	Encoder.addendum = thousand;
 	lcd_clrscr();
 	lcd_home();
-	USART(RxOff);
+	//USART(RxOff);
 	Menu.manualActive = true;
 	Encoder.addendumChanged = true;
 	MainTimer.displayReinit = true;
@@ -748,7 +748,7 @@ bool AutoInit()
 	MainTimer.displayReinit = true;
 	lcd_clrscr();
 	lcd_home();	
-	USART(RxOff);
+	//USART(RxOff);
 	return true;
 }
 
@@ -845,7 +845,7 @@ int main(void)
 	lcd_init(LCD_DISP_ON);
 	Timer0(true);
 	Converter(Init);
-	USART(Init);
+	//USART(Init);
 	sei();
 	
     while(1)
@@ -874,13 +874,13 @@ int main(void)
 		if (MainTimer.ms160)
 		{
 			Converter(On);
-			Transmit();
+			//Transmit();
 			MainTimer.ms160 = 0;
 		}
 		
 		if (Rx.byteReceived)
 		{
-			Receive();
+			//Receive();
 			Rx.byteReceived = 0;
 		}
 		

@@ -55,6 +55,7 @@
 #include <float.h>
 #include <avr/eeprom.h>
 #include "lcd/lcdpcf8574/lcdpcf8574.h"
+#include "dht/dht.h"
 
 const unsigned long int		ACCUM_MAXIMUM = 1875000000;
 //const unsigned int		FREQUENCY_MAXIMUM = 7812; // timer2 divider 1024
@@ -121,12 +122,18 @@ struct
 	
 } Factors;
 
-volatile struct
+struct
 {
 	float tension;
 	int value;
 	unsigned short done;
 } Convert;
+
+struct
+{
+	float temperature;
+	float humidity;
+} Env;
 
 ISR(TIMER0_OVF_vect)
 {
@@ -470,10 +477,25 @@ void ServoStep(unsigned int direction)
 	}
 }
 
+void EnvRequest()
+{	
+	static char bufferT[20], bufferH[20];
+	
+	if(dht_gettemperaturehumidity(&Env.temperature, &Env.humidity) != -1) 
+	{
+		sprintf(bufferT, " T%.1f ", Env.temperature);
+		TxString(bufferT);
+		sprintf(bufferH, " H%.1f ", Env.humidity);
+		TxString(bufferH);
+	} 
+	else 
+	{
+		TxString(" error ");
+	}
+}
+
 int main(void)
 {
-	float voltage = 0;
-	
 	DDRB = 0b00111110;
 	PORTB = 0b00000001;
 	
@@ -481,13 +503,13 @@ int main(void)
 	PORTC = 0b11000000;
 	
 	DDRD = 0b11000010;
-	PORTD = 0b00111111;
+	PORTD = 0b00000011;
 	
 	Timer0(false);
 	Timer1(Counter);
 	Timer2(false);
 	USART(Init);
-	Converter(Init);
+	Converter(Off);
 	sei();
 	   
 	while(1)
@@ -500,28 +522,25 @@ int main(void)
 		
 		if (MainTimer.isr)
 		{
-			StepperStep();
 			MainTimer.ms40++;
 			MainTimer.isr = false;
 		}
 		
 		if (Convert.done)
 		{
-			Convert.tension = Convert.value;
 			Convert.done = 0;
 		}
 		
 		if (MainTimer.ms200) 
 		{
-			Converter(On);
 			MainTimer.ms200 = 0;
 		}
 		
 		if (MainTimer.ms1000) 
 		{	
-			LedInv;
-			Transmit();
+			EnvRequest();
 			MainTimer.ms1000 = 0;
+			LedInv;
 		}
 	}
 }
