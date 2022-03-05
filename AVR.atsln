@@ -53,6 +53,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dht", "dht", "{D265520E-71C
 		..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.h = ..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.h
 	EndProjectSection
 EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Autoassembling_Peripherials", "A328P_Autoassembling_Peripherials\A328P_Autoassembling_Peripherials.cproj", "{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
@@ -71,6 +73,10 @@ Global
 		{73889FEE-863F-4ED9-A8A3-CAB8819A58A6}.Debug|AVR.Build.0 = Debug|AVR
 		{73889FEE-863F-4ED9-A8A3-CAB8819A58A6}.Release|AVR.ActiveCfg = Release|AVR
 		{73889FEE-863F-4ED9-A8A3-CAB8819A58A6}.Release|AVR.Build.0 = Release|AVR
+		{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}.Debug|AVR.ActiveCfg = Debug|AVR
+		{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}.Debug|AVR.Build.0 = Debug|AVR
+		{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}.Release|AVR.ActiveCfg = Release|AVR
+		{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

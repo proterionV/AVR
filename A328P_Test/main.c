@@ -135,6 +135,12 @@ struct
 	float humidity;
 } Env;
 
+struct 
+{
+	char ip[16];
+	unsigned int port;
+} Server;
+
 ISR(TIMER0_OVF_vect)
 {
 	MainTimer.ms16++;
@@ -494,6 +500,39 @@ void EnvRequest()
 	}
 }
 
+unsigned short GetDataSize(float value, unsigned short literalSize)
+{
+	if (value < 10)	return literalSize + 3 + 1; // literal size (F, Tn...) + figures quantity + Terminator
+	if (value < 100) return literalSize + 4 + 1;
+	if (value < 1000) return literalSize + 5 + 1;
+	if (value < 10000) return literalSize + 6 + 1;
+	if (value < 100000) return literalSize + 7 + 1;
+	return 0;
+}
+
+bool ConnectToServer()
+{
+	static char connectString[60] = "AT+CIPSTART=\"TCP\",\"192\".\"168\".\"252\".\"69\",11000";
+	TxString(connectString);	
+	return true;
+}
+
+void SendToServer()
+{ 
+	
+	static unsigned short size = 0;
+	static char frequency[20], sizeBuffer[10], buffer[100];
+	
+	
+	size = GetDataSize(DDS.setting, 1);
+	sprintf(frequency, "F%.1f$", DDS.setting);
+	sprintf(sizeBuffer, "%.d", size);
+	strcat(buffer, "AT+CIPSEND=");
+	strcat(buffer, sizeBuffer);
+	TxString(buffer);
+	TxString(frequency);
+}
+
 int main(void)
 {
 	DDRB = 0b00111110;
@@ -511,9 +550,9 @@ int main(void)
 	USART(Init);
 	Converter(Off);
 	sei();
-	   
+	
 	while(1)
-	{	
+	{
 		if (Rx.byteReceived)
 		{
 			Receive();
@@ -531,13 +570,13 @@ int main(void)
 			Convert.done = 0;
 		}
 		
-		if (MainTimer.ms200) 
+		if (MainTimer.ms200)
 		{
 			MainTimer.ms200 = 0;
 		}
 		
-		if (MainTimer.ms1000) 
-		{	
+		if (MainTimer.ms1000)
+		{
 			EnvRequest();
 			MainTimer.ms1000 = 0;
 			LedInv;
