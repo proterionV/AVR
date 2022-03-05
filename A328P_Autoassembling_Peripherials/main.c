@@ -38,6 +38,9 @@
 #define RxOn	 5
 #define RxOff	 6
 
+#define StartSPI	Low(PORTB,2)	 
+#define EndSPI		High(PORTB,2)	
+
 #define Frequency 	0
 #define	Tension		1
 
@@ -46,8 +49,6 @@
 #define RxBufferSize    100
 #define TxBufferSize	100
 
-#pragma region Symbols
-
 #define NextLine    0x0A
 #define FillCell    0xFF
 #define Terminator  '$'
@@ -55,21 +56,20 @@
 #define Eraser		' '
 #define StringEnd	'\0'
 
-#pragma endregion Symbols
-
 #pragma region Includes
 
 #include <xc.h>
 #include <avr/io.h>
-#include <float.h>
+#include <avr/eeprom.h>
 #include <avr/interrupt.h>
+#include <float.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
 #include <stdbool.h>
-#include <avr/eeprom.h>
+#include <util/delay.h>
 #include "lcd/lcd.h"
 #include "dht/dht.h"
 
@@ -102,6 +102,12 @@ volatile struct
 	unsigned char byte;
 	bool byteReceived;	
 } Rx;
+
+volatile struct 
+{
+	unsigned long int word;
+	float frequency;	
+} DDS;
 
 #pragma endregion Structs
 
@@ -228,6 +234,23 @@ ISR(USART_RX_vect)
 	Rx.byteReceived++;
 }
 
+void SPI(unsigned short option)
+{
+	switch (option)
+	{
+		case On:
+			SPCR = (1<<SPE) | (1<<MSTR);
+			break;
+		case Off:
+			SPCR = (0<<SPE)|(0<<MSTR);
+			break;
+		default:
+			SPCR = (1<<SPE) | (1<<MSTR);
+			SPDR = 0b00000000;
+			break;		
+	}
+}
+
 #pragma endregion Inits and Interrupts
 
 #pragma region Common functions
@@ -235,7 +258,7 @@ ISR(USART_RX_vect)
 void Initialization()
 {
 	DDRB = 0b00111100;
-	PORTB = 0b00000011;
+	PORTB = 0b00000111;
 	
 	DDRC = 0b00111100;
 	PORTC = 0b01000000;
@@ -245,8 +268,27 @@ void Initialization()
 	
 	lcd_init(LCD_DISP_ON);
 	Timer0(true);
-	Timer1(false);
+	Timer1(true);
+	USART(Init);
+	SPI(Init);
+	Converter(Init);
 	sei();
+}
+
+void WriteBytes(unsigned int word)
+{
+	unsigned char MSdata = ((word>>8) & 0x00FF);  	//filter out MS
+	unsigned char LSdata = (word & 0x00FF);			//filter out LS
+
+	StartSPI;
+	
+	SPDR = MSdata;							// 	send First 8 MS of data
+	while (!(SPSR & (1<<SPIF)));			//	while busy
+
+	SPDR = LSdata;							// 	send Last 8 LS of data
+	while (!(SPSR & (1<<SPIF)));			//	while busy
+
+	EndSPI;							
 }
 
 void TxChar(unsigned char c)
@@ -381,6 +423,37 @@ void Calculation(unsigned short parameter)
 	Measure.zero = false;
 }
 
+unsigned short GetDataSize(float value, unsigned short literalSize)
+{
+	if (value < 10)	return literalSize + 3 + 1; // literal size (F, Tn...) + figures quantity + Terminator
+	if (value < 100) return literalSize + 4 + 1;
+	if (value < 1000) return literalSize + 5 + 1;
+	if (value < 10000) return literalSize + 6 + 1;
+	if (value < 100000) return literalSize + 7 + 1;
+	return 0;
+}
+
+bool ConnectToServer()
+{
+	static char connectString[60] = "AT+CIPSTART=\"TCP\",\"192\".\"168\".\"252\".\"69\",11000";
+	TxString(connectString);
+	return true;
+}
+
+void SendToServer()
+{
+	static unsigned short size = 0;
+	static char frequency[20], sizeBuffer[10], buffer[100];
+	
+	size = GetDataSize(Measure.frequency, 1);
+	sprintf(frequency, "F%.1f$", Measure.frequency);
+	sprintf(sizeBuffer, "%.d", size);
+	strcat(buffer, "AT+CIPSEND=");
+	strcat(buffer, sizeBuffer);
+	TxString(buffer);
+	TxString(frequency);
+}
+
 int main(void)
 {
 	Initialization();
@@ -396,7 +469,6 @@ int main(void)
 		if (MainTimer.ms992)
 		{
 			LedInv;
-			GetOneWireData();
 			MainTimer.ms992 = 0;
 		}
     }
