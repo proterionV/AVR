@@ -263,15 +263,14 @@ void Initialization()
 	DDRC = 0b00111100;
 	PORTC = 0b01000000;
 	
-	DDRD = 0b11011110;
-	PORTD = 0b00100011;
+	DDRD = 0b11001110;
+	PORTD = 0b00110011;
 	
-	lcd_init(LCD_DISP_ON);
 	Timer0(true);
-	Timer1(true);
-	USART(Init);
+	//Timer1(true);
+	//Converter(Init);
+	//USART(Init);
 	SPI(Init);
-	Converter(Init);
 	sei();
 }
 
@@ -454,12 +453,30 @@ void SendToServer()
 	TxString(frequency);
 }
 
+void SendTrig(unsigned int word)
+{
+	static unsigned short trig = 0;
+	
+	if (Enter) trig = 0;
+	{
+		if (!Enter) trig++;
+		{
+			if (trig == 1)
+			{
+				WriteBytes(word);
+			}
+		}
+	}
+}
+
 int main(void)
 {
 	Initialization();
 	
     while(1)
     {
+		SendTrig(0xC0C0);
+		
         if (MainTimer.ms160)
         {
 			
