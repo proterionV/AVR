@@ -15,3 +15,7 @@ Project properties -> Toolchain -> XC8 Linker -> Miscellaneous -> Other linked f
  Project properties -> Toolchain -> XC8 C Compiler -> Symbols -> Defined Symbols (Add item):
  F_CPU=16000000UL
  */
+ 
+  /*
+Atmega328P SPI, for correct transmit need make sending 2 times
+ */

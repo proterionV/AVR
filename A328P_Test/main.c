@@ -350,6 +350,22 @@ void USART(unsigned short option)
 	}
 }
 
+void SPI_Write(unsigned int word)
+{
+	unsigned char MSB = ((word >> 8) & 0x0f) | 0x70;  	//filter out MS
+	unsigned char LSB = word & 0xff;			//filter out LS
+	//
+	//StartSPI;
+
+	SPDR = MSB;							// 	send First 8 MS of data
+	while (!(SPSR & (1<<SPIF)));			//	while busy
+	
+	SPDR = LSB;							// 	send Last 8 LS of data
+	while (!(SPSR & (1<<SPIF)));			//	while busy
+
+	//EndSPI;
+}
+
 void TxChar(unsigned char c)
 {
 	while (!(UCSR0A & (1<<UDRE0)));

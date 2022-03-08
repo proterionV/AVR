@@ -38,13 +38,18 @@
 #define RxOn	 5
 #define RxOff	 6
 
-#define StartSPI	Low(PORTB,2)	 
-#define EndSPI		High(PORTB,2)	
+#define StartSPI	Low(PORTB, 2)	 
+#define EndSPI		High(PORTB, 2)	
 
-#define Frequency 	0
-#define	Tension		1
+#define DDSOut		(Check(PORTB, 4))
+#define DDSOutInv	Inv(PORTB, 4)
+
+#define Frequency 	200
+#define	Tension		201
 
 #define TnArraySize 20
+#define TArraySize	10
+#define HArraySize	10
 
 #define RxBufferSize    100
 #define TxBufferSize	100
@@ -84,7 +89,7 @@ volatile struct
 
 volatile struct 
 {
-	float period, frequency, bufFrequency;
+	float period, frequency, bufFrequency, temperature, humidity, tension;
 	unsigned long int ticksCurrent,ticksPrevious,ticks;
 	unsigned long int overflows,ticksBuffer;
 	bool done, zero;
@@ -92,7 +97,6 @@ volatile struct
 
 volatile struct 
 {
-	float tension;
 	signed int value;
 	bool done;	
 } Convert;
@@ -105,8 +109,9 @@ volatile struct
 
 volatile struct 
 {
-	unsigned long int word;
-	float frequency;	
+	float frequency;
+	unsigned long int increment, accum;
+	unsigned long int accumMax, frequencyMax;	
 } DDS;
 
 #pragma endregion Structs
@@ -173,21 +178,48 @@ ISR(TIMER1_CAPT_vect)
 	Measure.done = true;
 }
 
+void Timer2(bool enable)
+{
+	if (enable)
+	{
+		TCCR2B = (1<<CS22) | (1<<CS21) | (1<<CS20); // 1024 bit scaler
+		TIMSK2 = (1<<TOIE2);
+		return;
+	}
+	
+	TCCR2B = (0<<CS22) | (0<<CS21) | (0<<CS20);
+	TIMSK2 = (0<<TOIE2);
+	TCNT2 = 0;
+}
+
+ISR(TIMER2_OVF_vect)
+{
+	TCNT2 = 255;
+
+	DDS.accum += DDS.increment;
+	
+	if (DDS.accum >= DDS.accumMax)
+	{
+		DDSOutInv;
+		DDS.accum -= DDS.accumMax;
+	}
+}
+
 void Converter(unsigned short option)
  {
 	 switch (option)
 	 {
 		 case Off:
-		 ADCSRA |= (0<<ADSC);
-		 break;
+			 ADCSRA |= (0<<ADSC);
+			 break;
 		 case On:
-		 ADCSRA |= (1<<ADSC);
-		 break;
+			 ADCSRA |= (1<<ADSC);
+			 break;
 		 default:
-		 ADCSRA = 0x8F;
-		 ADMUX = 0x40;
-		 ADCSRA |= (0<<ADSC);
-		 break;
+			 ADCSRA = 0x8F;
+			 ADMUX = 0x46;
+			 ADCSRA |= (0<<ADSC);
+			 break;
 	 }
  }
 
@@ -239,13 +271,13 @@ void SPI(unsigned short option)
 	switch (option)
 	{
 		case On:
-			SPCR = (1<<SPE) | (1<<MSTR);
+			SPCR |= (1<<SPE);
 			break;
 		case Off:
-			SPCR = (0<<SPE)|(0<<MSTR);
+			SPCR |= (0<<SPE);
 			break;
 		default:
-			SPCR = (1<<SPE) | (1<<MSTR);
+			SPCR = (1<<SPE) | (1<<MSTR) | (1<<SPR1) | (0<<SPR0);
 			SPDR = 0b00000000;
 			break;		
 	}
@@ -260,34 +292,53 @@ void Initialization()
 	DDRB = 0b00111100;
 	PORTB = 0b00000111;
 	
-	DDRC = 0b00111100;
-	PORTC = 0b01000000;
+	DDRC = 0b00111111;
+	PORTC = 0b00000000;
 	
 	DDRD = 0b11001110;
 	PORTD = 0b00110011;
 	
+	DDS.frequencyMax = 7812;
+	DDS.accumMax = 1000000000;
+	DDS.increment = 0;
+	
+	lcd_init(LCD_DISP_ON);
+	lcd_clrscr();
+	lcd_home();
+	
 	Timer0(true);
-	//Timer1(true);
-	//Converter(Init);
-	//USART(Init);
-	SPI(Init);
+	Timer1(true);
+	Timer2(true);
+	Converter(Init);
+	USART(Off);
+	SPI(Off);
 	sei();
 }
 
 void WriteBytes(unsigned int word)
 {
-	unsigned char MSdata = ((word>>8) & 0x00FF);  	//filter out MS
-	unsigned char LSdata = (word & 0x00FF);			//filter out LS
-
-	StartSPI;
+	unsigned char LSB = word & 0xff;			
+	unsigned char MSB = word >> 8;  
 	
-	SPDR = MSdata;							// 	send First 8 MS of data
+	StartSPI;
+
+	SPDR = LSB;
+	while (!(SPSR & (1<<SPIF)));
+
+	SPDR = MSB;					
+	while (!(SPSR & (1<<SPIF)));			
+
+	EndSPI;	
+	
+	StartSPI;
+
+	SPDR = MSB;							// 	send First 8 MS of data
+	while (!(SPSR & (1<<SPIF)));			//	while busy
+	
+	SPDR = LSB;							// 	send Last 8 LS of data
 	while (!(SPSR & (1<<SPIF)));			//	while busy
 
-	SPDR = LSdata;							// 	send Last 8 LS of data
-	while (!(SPSR & (1<<SPIF)));			//	while busy
-
-	EndSPI;							
+	EndSPI;
 }
 
 void TxChar(unsigned char c)
@@ -343,7 +394,56 @@ float MovAvgTns(float value, bool reset)
 	return result/TnArraySize;
 }
 
-#pragma endregion Common functions
+float MovAvgTemp(float value, bool reset)
+{
+	static unsigned short index = 0;
+	static float values[TArraySize];
+	static float result;
+	
+	if (reset)
+	{
+		memset(values, 0, TArraySize);
+		result = 0;
+		index = 0;
+		return 0;
+	}
+	
+	result += value - values[index];
+	values[index] = value;
+	index = (index + 1) % TArraySize;
+	
+	return result/TArraySize;
+}
+
+float MovAvgHum(float value, bool reset)
+{
+	static unsigned short index = 0;
+	static float values[HArraySize];
+	static float result;
+	
+	if (reset)
+	{
+		memset(values, 0, HArraySize);
+		result = 0;
+		index = 0;
+		return 0;
+	}
+	
+	result += value - values[index];
+	values[index] = value;
+	index = (index + 1) % HArraySize;
+	
+	return result/HArraySize;
+}
+
+void SetIncrement(unsigned int frequency)
+{
+	static unsigned int divider = 0;
+	
+	DDS.frequency = frequency;
+	divider = DDS.frequency < 11000 ? 10000 : 100000;
+	DDS.increment = (((DDS.accumMax/divider)*DDS.frequency)/DDS.frequencyMax)*divider;
+}
 
 void EraseUnits(int x, int y, int offset, float count)
 {
@@ -372,32 +472,47 @@ void EraseUnits(int x, int y, int offset, float count)
 		lcd_gotoxy(x+offset+1,y);
 		lcd_putc(eraser);
 	}
+	
+	
+	lcd_gotoxy(x, y);
 }
+
+void DisplayPrint()
+{
+	static char frequency[20], temperature[20], humidity[20], tension[20];
+	
+	EraseUnits(0, 0, 0, Measure.temperature);
+	sprintf(temperature, "T%.1f", Measure.temperature);
+	lcd_puts(temperature);
+	
+	EraseUnits(0, 1, 2, Measure.humidity);
+	sprintf(humidity, "H%.1f", Measure.humidity);
+	lcd_puts(humidity);
+	
+	EraseUnits(8, 0, 0, Measure.frequency);
+	sprintf(frequency, "F%.1f", Measure.frequency);
+	lcd_puts(frequency);
+	
+	EraseUnits(8, 1, 0, Measure.tension);
+	sprintf(tension, "Tn%.1f", Measure.tension);
+	lcd_puts(tension);
+}
+
+#pragma endregion Common functions
 
 void GetOneWireData()
 {
-	static char bufferT[20], bufferH[20];
 	static float temperature, humidity;
 	
-	if(dht_gettemperaturehumidity(&temperature, &humidity) != -1)
+	if (dht_gettemperaturehumidity(&temperature, &humidity) != -1)
 	{
-		EraseUnits(0, 0, 2, temperature);
-		sprintf(bufferT, "%.1f C", temperature);
-		lcd_gotoxy(0, 0);
-		lcd_puts(bufferT);
-		
-		EraseUnits(0, 1, 2, humidity);
-		sprintf(bufferH, "%.1f ", humidity);
-		lcd_gotoxy(0, 1);
-		lcd_puts(bufferH);
-		lcd_putc('%');
+		Measure.temperature = MovAvgTemp(temperature, false);
+		Measure.humidity = MovAvgHum(humidity, false);
+		return;	
 	}
-	else
-	{
-		lcd_clrscr();
-		lcd_home();
-		lcd_puts("error");
-	}
+	
+	Measure.temperature = MovAvgTemp(-1, false);
+	Measure.humidity = MovAvgHum(-1, false);
 }
 
 void Calculation(unsigned short parameter)
@@ -407,7 +522,7 @@ void Calculation(unsigned short parameter)
 	if (parameter == Tension)
 	{
 		adc = Convert.value-18;
-		Convert.tension = MovAvgTns(adc < 1 ? 0 : (adc*7.)-7, false);
+		Measure.tension = MovAvgTns(adc < 1 ? 0 : (adc*7.)-7, false);
 		adc = 0;
 		
 		return;
@@ -453,39 +568,35 @@ void SendToServer()
 	TxString(frequency);
 }
 
-void SendTrig(unsigned int word)
-{
-	static unsigned short trig = 0;
-	
-	if (Enter) trig = 0;
-	{
-		if (!Enter) trig++;
-		{
-			if (trig == 1)
-			{
-				WriteBytes(word);
-			}
-		}
-	}
-}
-
 int main(void)
-{
-	Initialization();
+{	
+	Initialization();	
 	
     while(1)
     {
-		SendTrig(0xC0C0);
+		if (Measure.done)
+		{
+			Calculation(Frequency);
+			Measure.done = 0;
+		}
+		
+		if (Convert.done)
+		{
+			Calculation(Tension);
+			Convert.done = 0;
+		}
 		
         if (MainTimer.ms160)
         {
-			
+			Converter(On);
 	        MainTimer.ms160 = 0;
         }
 		
 		if (MainTimer.ms992)
 		{
 			LedInv;
+			DisplayPrint();
+			GetOneWireData();
 			MainTimer.ms992 = 0;
 		}
     }
