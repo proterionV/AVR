@@ -60,6 +60,8 @@
 #define Arrow		'>'
 #define Eraser		' '
 #define StringEnd	'\0'
+#define CR			'\r'
+#define LF			'\n'
 
 #pragma region Includes
 
@@ -113,6 +115,13 @@ volatile struct
 	unsigned long int increment, accum;
 	unsigned long int accumMax, frequencyMax;	
 } DDS;
+
+volatile struct
+{
+	bool connectRequested, checkResponse;
+	unsigned short delay;
+		
+} Server;
 
 #pragma endregion Structs
 
@@ -307,10 +316,13 @@ void Initialization()
 	lcd_home();
 	
 	Timer0(true);
-	Timer1(true);
-	Timer2(true);
-	Converter(Init);
-	USART(Off);
+	Timer1(false);
+	Timer2(false);
+	Converter(Off);
+	
+	_delay_ms(2000);
+	
+	USART(On);
 	SPI(Off);
 	sei();
 }
@@ -500,9 +512,11 @@ void DisplayPrint()
 
 #pragma endregion Common functions
 
-void GetOneWireData()
+void GetOneWireData(bool enable)
 {
 	static float temperature, humidity;
+	
+	if (!(enable)) return;
 	
 	if (dht_gettemperaturehumidity(&temperature, &humidity) != -1)
 	{
@@ -547,11 +561,11 @@ unsigned short GetDataSize(float value, unsigned short literalSize)
 	return 0;
 }
 
-bool ConnectToServer()
+void ConnectToServer()
 {
-	static char connectString[60] = "AT+CIPSTART=\"TCP\",\"192\".\"168\".\"252\".\"69\",11000";
+	static char connectString[60] = "AT+CIPSTART=\"TCP\",\"192.168.43.222\",11000\r\n";
 	TxString(connectString);
-	return true;
+	Server.connectRequested = true;
 }
 
 void SendToServer()
@@ -568,9 +582,79 @@ void SendToServer()
 	TxString(frequency);
 }
 
+void Transmit()
+{
+		
+}
+
+void Receive()
+{
+	static char RxBuffer[RxBufferSize] = { 0 };
+	static char TxBuffer[TxBufferSize] = { 0 };
+	static unsigned int index = 0;
+	
+	if (Server.checkResponse)
+	{
+		if (index >= RxBufferSize-1)
+		{
+			strcpy(TxBuffer, "error: overflow");
+			lcd_clrline(0, 0);
+			lcd_puts(TxBuffer);
+			TxString(TxBuffer);
+			memset(TxBuffer, 0, TxBufferSize);
+			index = 0;
+			return;
+		}
+		
+		RxBuffer[index++] = Rx.byte;
+		return;
+	}
+	
+	if (!(Rx.byte == Terminator))
+	{
+		if (index >= RxBufferSize-1)
+		{
+			strcpy(TxBuffer, "error: overflow");
+			lcd_clrline(0, 0);
+			lcd_puts(TxBuffer);
+			TxString(TxBuffer);
+			memset(TxBuffer, 0, TxBufferSize);
+			index = 0;
+			return;
+		}
+
+		RxBuffer[index++] = Rx.byte;
+		return;
+	}
+	
+	RxBuffer[index] = StringEnd;
+	index = 0;
+	
+	if (!(strcasecmp(RxBuffer, "led")))
+	{
+		LedInv;
+		lcd_clrline(0, 1);
+		if (Led) { lcd_puts("led on"); TxString("led on"); } else { lcd_puts("led off"); TxString("led off"); }
+	}
+	else if (!(strcasecmp(RxBuffer, "connect")))
+	{
+		ConnectToServer();
+	}
+	else
+	{
+		lcd_clrline(0, 0);
+		lcd_puts(RxBuffer);
+		strcpy(TxBuffer, "unknown: ");
+		strcat(TxBuffer, RxBuffer);
+		TxString(TxBuffer);
+		memset(TxBuffer, 0, TxBufferSize);
+	}
+}
+
 int main(void)
 {	
 	Initialization();	
+	USART(On);
 	
     while(1)
     {
@@ -592,11 +676,16 @@ int main(void)
 	        MainTimer.ms160 = 0;
         }
 		
+		if (Rx.byteReceived)
+		{
+			Receive();
+			Rx.byteReceived = false;
+		}
+		
 		if (MainTimer.ms992)
 		{
-			LedInv;
-			DisplayPrint();
-			GetOneWireData();
+			GetOneWireData(false);
+			if (Server.delay > 0) Server.delay--;
 			MainTimer.ms992 = 0;
 		}
     }

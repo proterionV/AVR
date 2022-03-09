@@ -256,6 +256,7 @@ extern void lcd_command(uint8_t cmd);
 */
 extern void lcd_data(uint8_t data);
 
+extern void lcd_clrline(uint8_t x, uint8_t y);
 
 /**
  @brief macros for automatically storing string constant in program memory

@@ -428,6 +428,14 @@ void lcd_home(void)
     lcd_command(1<<LCD_HOME);
 }
 
+void lcd_clrline(uint8_t x, uint8_t y)
+{
+	
+	lcd_gotoxy(x, y);
+	for (int i = x; i<16; i++) lcd_putc(' ');
+	lcd_gotoxy(x, y);
+}
+
 
 /*************************************************************************
 Display character at current cursor position 

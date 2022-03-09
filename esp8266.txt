@@ -1,0 +1,6 @@
+with commands needs append \r\n
+
+Commands
+
+AT - check connection, response "OK"
+
