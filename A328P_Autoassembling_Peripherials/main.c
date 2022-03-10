@@ -63,6 +63,11 @@
 #define CR			'\r'
 #define LF			'\n'
 
+#define Before	30
+#define Between 31
+#define Inside	32
+#define After	33
+
 #pragma region Includes
 
 #include <xc.h>
@@ -118,7 +123,7 @@ volatile struct
 
 volatile struct
 {
-	bool connectRequested, checkResponse;
+	bool connected, receiving, handling, handled;
 	unsigned short delay;
 		
 } Server;
@@ -244,28 +249,28 @@ void USART(unsigned short option)
 	switch (option)
 	{
 		case TxOn:
-		UCSR0B |= (1 << TXEN0);
-		break;
+			UCSR0B |= (1 << TXEN0);
+			break;
 		case TxOff:
-		UCSR0B |= (0 << TXEN0);
-		break;
+			UCSR0B |= (0 << TXEN0);
+			break;
 		case RxOn:
-		UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
-		break;
+			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			break;
 		case RxOff:
-		UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-		break;
+			UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			break;
 		case On:
-		UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
-		break;
+			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			break;
 		case Off:
-		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-		break;
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			break;
 		default:
-		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-		UBRR0  =  0;
-		break;
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+			UBRR0  =  3;
+			break;
 	}
 }
 
@@ -322,7 +327,7 @@ void Initialization()
 	
 	_delay_ms(2000);
 	
-	USART(On);
+	USART(Init);
 	SPI(Off);
 	sei();
 }
@@ -564,8 +569,9 @@ unsigned short GetDataSize(float value, unsigned short literalSize)
 void ConnectToServer()
 {
 	static char connectString[60] = "AT+CIPSTART=\"TCP\",\"192.168.43.222\",11000\r\n";
+	Server.receiving = true;
+	Server.delay = 1;
 	TxString(connectString);
-	Server.connectRequested = true;
 }
 
 void SendToServer()
@@ -587,13 +593,86 @@ void Transmit()
 		
 }
 
-void Receive()
+void ReceiveAuto()
+{
+	static char RxBuffer[RxBufferSize] = { 0 };
+	static char TxBuffer[TxBufferSize] = { 0 };
+	static char Response[10][20] = { 0 };
+	static unsigned int index = 0, charIndex = 0, wordIndex = 0, position = Before;
+	
+	if (index >= RxBufferSize-1)
+	{
+		strcpy(TxBuffer, "error: overflow");
+		lcd_clrline(0, 0);
+		lcd_puts(TxBuffer);
+		TxString(TxBuffer);
+		memset(TxBuffer, 0, TxBufferSize);
+		index = 0;
+		return;
+	}
+	
+	if (Server.receiving)
+	{ 
+		RxBuffer[index++] = Rx.byte; 
+		return; 
+	}
+	
+	RxBuffer[index] = StringEnd;
+	index = 0;
+	
+	wordIndex = 0;
+	charIndex = 0;
+	position = Before;
+	
+	for(int i=0; i<sizeof(RxBuffer); i++)
+	{	 
+		if (position == Before)
+		{
+			if (RxBuffer[i] == StringEnd) break;
+			if (RxBuffer[i] == CR || RxBuffer[i] == LF) continue;
+			position = Inside;
+			i--;		
+		}
+		else if (position == Inside)
+		{
+			if (RxBuffer[i] == CR || RxBuffer[i] == LF)
+			{
+				Response[wordIndex][charIndex] = StringEnd;
+				position = Between;
+				charIndex = 0;
+				continue;
+			}
+			
+			Response[wordIndex][charIndex++] = RxBuffer[i];
+			if (RxBuffer[i] == StringEnd) position = After;
+			 
+		}
+		else if (position == Between)
+		{
+			if (RxBuffer[i] == StringEnd) position = After;
+			if (RxBuffer[i] == CR || RxBuffer[i] == LF) continue;
+			position = Inside;
+			wordIndex++;	
+			i--;	
+		}
+		else 
+		{
+			lcd_clrline(0, 0);
+			lcd_puts("After");	
+		}
+	}
+	
+	Server.handled = true;
+	//for (int w=0;w<=wordIndex;w++) TxString(Response[w]);
+}
+
+void ReceiveManual()
 {
 	static char RxBuffer[RxBufferSize] = { 0 };
 	static char TxBuffer[TxBufferSize] = { 0 };
 	static unsigned int index = 0;
-	
-	if (Server.checkResponse)
+		
+	if (!(Rx.byte == Terminator))
 	{
 		if (index >= RxBufferSize-1)
 		{
@@ -609,27 +688,10 @@ void Receive()
 		RxBuffer[index++] = Rx.byte;
 		return;
 	}
-	
-	if (!(Rx.byte == Terminator))
-	{
-		if (index >= RxBufferSize-1)
-		{
-			strcpy(TxBuffer, "error: overflow");
-			lcd_clrline(0, 0);
-			lcd_puts(TxBuffer);
-			TxString(TxBuffer);
-			memset(TxBuffer, 0, TxBufferSize);
-			index = 0;
-			return;
-		}
-
-		RxBuffer[index++] = Rx.byte;
-		return;
-	}
-	
+		
 	RxBuffer[index] = StringEnd;
 	index = 0;
-	
+		
 	if (!(strcasecmp(RxBuffer, "led")))
 	{
 		LedInv;
@@ -652,9 +714,10 @@ void Receive()
 }
 
 int main(void)
-{	
-	Initialization();	
-	USART(On);
+{
+	Initialization();
+	USART(On);	
+	ConnectToServer();
 	
     while(1)
     {
@@ -670,22 +733,39 @@ int main(void)
 			Convert.done = 0;
 		}
 		
+		if (Rx.byteReceived || Server.handling)
+		{
+			ReceiveAuto();
+			Rx.byteReceived = false;
+			Server.handling = false;
+		}
+		
         if (MainTimer.ms160)
         {
 			Converter(On);
 	        MainTimer.ms160 = 0;
         }
 		
-		if (Rx.byteReceived)
-		{
-			Receive();
-			Rx.byteReceived = false;
-		}
-		
 		if (MainTimer.ms992)
 		{
 			GetOneWireData(false);
-			if (Server.delay > 0) Server.delay--;
+			
+			if (Server.handled)
+			{
+				TxString("Handled");
+				lcd_clrline(0, 1);
+				lcd_puts("Handled");
+				Server.handled = false;
+			}
+			
+			if (Server.delay > 1) 
+			{ 
+				Server.receiving = false; 
+				Server.handling = true;
+				Server.delay = 0; 
+			}
+			
+			if (Server.delay == 1) Server.delay++;  
 			MainTimer.ms992 = 0;
 		}
     }
