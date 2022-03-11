@@ -312,6 +312,8 @@ void Initialization()
 	DDRD = 0b11001110;
 	PORTD = 0b00110011;
 	
+	Server.tryToConnect = true;
+	
 	DDS.frequencyMax = 7812;
 	DDS.accumMax = 1000000000;
 	DDS.increment = 0;
@@ -666,6 +668,18 @@ void ReceiveAuto()
 	{
 		Server.connected = true; 
 		Server.tryToConnect = false;
+		
+		lcd_clrline(0, 0);
+		lcd_puts(Response[0]);
+		
+		lcd_clrline(0, 1);
+		lcd_puts(Response[1]);
+	}
+	
+	if (strcasecmp(Response[0], "ERROR"))
+	{
+		lcd_gotoxy(8, 1);
+		lcd_puts(Response[0]);	
 	}
 }
 
@@ -720,7 +734,6 @@ int main(void)
 {
 	Initialization();
 	USART(On);											  
-	ConnectToServer();
 	
     while(1)
     {
@@ -767,6 +780,7 @@ int main(void)
 			}
 			
 			if (Server.delay == 1) Server.delay++; 
+			
 			MainTimer.s++; 
 			
 			if (MainTimer.s >= 60)
@@ -775,7 +789,7 @@ int main(void)
 				MainTimer.s = 0;
 			}
 			
-			if (MainTimer.m >= 5)
+			if (MainTimer.m >= 1)
 			{
 				if (Server.tryToConnect)
 				{
