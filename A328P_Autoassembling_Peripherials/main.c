@@ -91,7 +91,7 @@
 
 volatile struct 
 {
-	volatile unsigned int ms16, ms160, ms992;
+	volatile unsigned int ms16, ms160, ms992, s, m, m2;
 } MainTimer;
 
 volatile struct 
@@ -123,8 +123,8 @@ volatile struct
 
 volatile struct
 {
-	bool connected, receiving, handling, handled;
-	unsigned short delay;
+	bool connected, receiving, handling, handled, tryToConnect;
+	unsigned short delay, tryToConnectTimeout;
 		
 } Server;
 
@@ -568,10 +568,9 @@ unsigned short GetDataSize(float value, unsigned short literalSize)
 
 void ConnectToServer()
 {
-	static char connectString[60] = "AT+CIPSTART=\"TCP\",\"192.168.43.222\",11000\r\n";
 	Server.receiving = true;
 	Server.delay = 1;
-	TxString(connectString);
+	TxString("AT+CIPSTART=\"TCP\",\"192.168.43.222\",11000\r\n");
 }
 
 void SendToServer()
@@ -617,6 +616,8 @@ void ReceiveAuto()
 		return; 
 	}
 	
+	if (index < 1) return;
+	
 	RxBuffer[index] = StringEnd;
 	index = 0;
 	
@@ -657,13 +658,15 @@ void ReceiveAuto()
 		}
 		else 
 		{
-			lcd_clrline(0, 0);
-			lcd_puts("After");	
+
 		}
 	}
 	
-	Server.handled = true;
-	//for (int w=0;w<=wordIndex;w++) TxString(Response[w]);
+	if (!Server.connected && strcasecmp(Response[0], "CONNECT") && strcasecmp(Response[1], "OK")) 
+	{
+		Server.connected = true; 
+		Server.tryToConnect = false;
+	}
 }
 
 void ReceiveManual()
@@ -716,7 +719,7 @@ void ReceiveManual()
 int main(void)
 {
 	Initialization();
-	USART(On);	
+	USART(On);											  
 	ConnectToServer();
 	
     while(1)
@@ -752,9 +755,7 @@ int main(void)
 			
 			if (Server.handled)
 			{
-				TxString("Handled");
-				lcd_clrline(0, 1);
-				lcd_puts("Handled");
+
 				Server.handled = false;
 			}
 			
@@ -765,7 +766,26 @@ int main(void)
 				Server.delay = 0; 
 			}
 			
-			if (Server.delay == 1) Server.delay++;  
+			if (Server.delay == 1) Server.delay++; 
+			MainTimer.s++; 
+			
+			if (MainTimer.s >= 60)
+			{
+				MainTimer.m++;
+				MainTimer.s = 0;
+			}
+			
+			if (MainTimer.m >= 5)
+			{
+				if (Server.tryToConnect)
+				{
+					ConnectToServer();
+					Server.tryToConnect = false;
+				}
+				
+				MainTimer.m = 0;
+			}
+			
 			MainTimer.ms992 = 0;
 		}
     }
