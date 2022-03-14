@@ -116,8 +116,8 @@ struct
 
 volatile struct
 {
-	float setting;
-	unsigned long int accum, increment, counter;
+	float frequency;
+	unsigned long int accum, increment;
 } DDS;
 
 volatile struct
@@ -154,6 +154,11 @@ volatile struct
 	unsigned char byte;
 	bool byteReceived;
 } Rx;
+
+volatile struct 
+{
+	float Kp, Ki, Kd, Kpid;
+} Factors;
 
 ISR(TIMER0_OVF_vect)
 {
@@ -261,7 +266,7 @@ void DisplayPrint()
 
 	if (Menu.mode == Main) return;
 
-	sprintf(setting, "%.1f", Menu.mode == Auto ? Measure.frequency : DDS.setting);
+	sprintf(setting, "%.1f", Menu.mode == Auto ? Measure.frequency : DDS.frequency);
 	EraseUnits(0, 0, 2, Measure.frequency);
 	lcd_gotoxy(0, 0);
 	lcd_puts(setting);
@@ -404,7 +409,7 @@ void Transmit()
 	
 	memset(buffer, 0, TxBufferSize);
 	
-	sprintf(frequency, "$F%.1f", Menu.mode == Auto ? Measure.frequency : DDS.setting);
+	sprintf(frequency, "$F%.1f", Menu.mode == Auto ? Measure.frequency : DDS.frequency);
 	sprintf(tension, "$Tn%.1f", Convert.tension);
 	strcat(buffer, frequency);
 	strcat(buffer, tension);
@@ -494,31 +499,31 @@ float MovAvgTns(float value, bool reset)
 float GetAddendum(void)
 {
 	static unsigned int divider = 0;
-	divider = DDS.setting < 11000 ? 10000 : 100000;
-	return (((ACCUM_MAXIMUM/divider)*DDS.setting)/FREQUENCY_MAXIMUM)*divider;
+	divider = DDS.frequency < 11000 ? 10000 : 100000;
+	return (((ACCUM_MAXIMUM/divider)*DDS.frequency)/FREQUENCY_MAXIMUM)*divider;
 }
 
 void SetOptionDDS(short direction)
 {
 	if (Menu.mode == Manual) 
 	{
-		if (direction > 0) DDS.setting += DDS.setting + Encoder.addendumValues[Encoder.addendum] <= FREQUENCY_MAXIMUM ? Encoder.addendumValues[Encoder.addendum] : 0;
-		if (direction < 0) DDS.setting -= DDS.setting - Encoder.addendumValues[Encoder.addendum] < 0 ? DDS.setting : Encoder.addendumValues[Encoder.addendum];  
+		if (direction > 0) DDS.frequency += DDS.frequency + Encoder.addendumValues[Encoder.addendum] <= FREQUENCY_MAXIMUM ? Encoder.addendumValues[Encoder.addendum] : 0;
+		if (direction < 0) DDS.frequency -= DDS.frequency - Encoder.addendumValues[Encoder.addendum] < 0 ? DDS.frequency : Encoder.addendumValues[Encoder.addendum];  
 		DDS.increment = GetAddendum();
-		if (DDS.setting < 0.1) { PhaseOff; Timer2(false); } else { Timer2(true); PhaseOn; }
+		if (DDS.frequency < 0.1) { PhaseOff; Timer2(false); } else { Timer2(true); PhaseOn; }
 		return;
 	}
 	
 	if (!direction)
 	{
-		DDS.setting = Measure.frequency * Encoder.multiplier;
+		DDS.frequency = Measure.frequency * Encoder.multiplier;
 		DDS.increment = GetAddendum();
 		return;
 	}
 	
 	if (direction > 0)
 	{
-		Encoder.multiplier += DDS.setting >= FREQUENCY_MAXIMUM ? 0 : Encoder.addendumValues[Encoder.addendum];
+		Encoder.multiplier += DDS.frequency >= FREQUENCY_MAXIMUM ? 0 : Encoder.addendumValues[Encoder.addendum];
 		eeprom_update_float((float*)1, Encoder.multiplier);
 		Encoder.multiplierChanged = true;
 	}
@@ -697,7 +702,8 @@ void MainHandle()
 	//USART(On);
 	Kalman(0, true);
 	MovAvgTns(0, true);
-	DDS.setting = 0;
+	//Regulator(true);
+	DDS.frequency = 0;
 	DDS.increment = 0;
 	Convert.value = 0;
 	Convert.tension = 0;
@@ -795,7 +801,7 @@ void AutoHandle()
 		MovAvgTns(0, true);
 		AutoMode.state = Waiting;
 		AutoMode.delayCount = 0;
-		DDS.setting = 0;
+		DDS.frequency = 0;
 		Measure.frequency = 0;
 		Convert.value = 0;
 		Convert.tension = 0;
@@ -837,6 +843,35 @@ void MenuReset()
 		SetOption(Main);
 		Menu.resetDelay = true;
 	}
+}
+
+void Regulator(bool reset)
+{
+	static float I, previousError = 0, tension = 150;
+	float P, D, regulationError, factor;
+
+	if (reset)
+	{
+		P = 0;
+		I = 0;
+		D = 0;
+		factor = 0;
+		regulationError = 0;
+	}
+
+	DDS.frequency = (Measure.frequency*Encoder.multiplier)*Factors.Kpid;
+	regulationError = tension - Convert.tension;
+	
+	P = regulationError*Factors.Kp;
+	I = (I+(regulationError*0.08))*Factors.Ki;
+	D = ((regulationError-previousError)/0.08)*Factors.Kd;
+	
+	factor = P+I+D;
+	previousError = regulationError;
+	
+	DDS.frequency = factor < 0 ? factor*(-1) : factor;
+	
+	DDS.increment = GetAddendum();
 }
 
 int main(void)
