@@ -5,6 +5,12 @@
  *  Author: igor.abramov
  */ 
 
+/*
+  Frequency comparer with counter inputs
+*/
+
+#pragma region defines
+
 #define F_CPU	16000000L
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
@@ -54,6 +60,8 @@
 #define StringEnd	'\0'
 #define CR			'\r'
 #define LF			'\n'
+
+#pragma endregion defines
 
 #pragma region Includes
 
@@ -272,7 +280,7 @@ void Initialization()
 void Calculation()
 {
 	Measure.Fa = MovAvgAramid(((255.*Measure.ovf)+TCNT0)*8.008064516129032, false);
-	Measure.Fp = MovAvgPolyamide((TCNT1*1.f)*8.008064516129032, false);
+	Measure.Fp = MovAvgPolyamide(TCNT1*8.008064516129032, false);
 	
 	TCNT0 = 0;
 	TCNT1 = 0;
