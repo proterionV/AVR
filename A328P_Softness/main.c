@@ -1,13 +1,10 @@
 /*
  * main.c
  *
- * Created: 3/14/2022 3:07:47 PM
- *  Author: igor.abramov
+ * Created: 3/17/2022 11:55:07 AM
+ * Author: igor.abramov
+ * Measure vibration level as softness of paper yarn
  */ 
-
-/*
-  Frequency comparer with counter inputs
-*/
 
 #pragma region defines
 
@@ -47,7 +44,7 @@
 #define StartSPI	Low(PORTB, 2)
 #define EndSPI		High(PORTB, 2)
 
-#define MovAvgSize	50
+#define MovAvgSize	2
 
 #define RxBufferSize    100
 #define TxBufferSize	100
@@ -90,51 +87,20 @@ volatile struct
 
 volatile struct
 {
-	unsigned int pulseA, pulseP, ovf;
-	float Fa, Fp;
-} Measure;
+	signed int value;
+	float voltage;
+	bool done;
+} Convert;
 
 #pragma endregion Structs
 
 #pragma region Inits, Interrupts
 
-void Timer0(bool enable)
-{
-	if (enable)
-	{
-		TCCR0B = (1 << CS02)|(1 << CS01)|(0 << CS00);
-		TIMSK0 = (1 << TOIE0);
-		TCNT0 = 0;
-		return;
-	}
-	
-	TCCR0B = (0 << CS02)|(0 << CS01)|(0 << CS00);
-	TIMSK0 = (0 << TOIE0);
-	TCNT0 = 0;
-}
-
-ISR(TIMER0_OVF_vect)
-{
-	Measure.ovf++;	
-}
-
-void Timer1(bool enable)
-{
-	if (enable)
-	{
-		TCCR1B = (1 << CS12)|(1 << CS11)|(0 << CS10);
-		return;
-	}
-	
-	TCCR1B = (0 << CS12)|(0 << CS11)|(0 << CS10);
-	TIMSK1 = (0 << TOIE1)|(0 << ICIE1);
-}
-
 void Timer2(bool enable)
 {
 	if (enable)
 	{
-		TCCR2B = (1 << CS22)|(0 << CS21)|(1 << CS20);
+		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);
 		TIMSK2 = (1 << TOIE2);
 		TCNT2 = 0;
 		return;
@@ -160,32 +126,36 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 5;
 }
 
+void Converter(unsigned short option)
+{
+	switch (option)
+	{
+		case Off:
+		ADCSRA |= (0<<ADSC);
+		break;
+		case On:
+		ADCSRA |= (1<<ADSC);
+		break;
+		default:
+		ADCSRA = 0x8F;
+		ADMUX = 0x41;
+		ADCSRA |= (0<<ADSC);
+		break;
+	}
+}
+
+ISR(ADC_vect)
+{
+	Converter(Off);
+	Convert.value = ADCW;
+	Convert.done = true;
+}
+
 #pragma endregion Inits and Interrupts
 
 #pragma region Common functions
 
-float MovAvgAramid(float value, bool reset)
-{
-	static unsigned short index = 0;
-	static float values[MovAvgSize];
-	static float result;
-	
-	if (reset)
-	{
-		memset(values, 0, MovAvgSize);
-		result = 0;
-		index = 0;
-		return 0;
-	}
-	
-	result += value - values[index];
-	values[index] = value;
-	index = (index + 1) % MovAvgSize;
-	
-	return result/MovAvgSize;
-}
-
-float MovAvgPolyamide(float value, bool reset)
+float MovAvg(float value, bool reset)
 {
 	static unsigned short index = 0;
 	static float values[MovAvgSize];
@@ -240,15 +210,15 @@ void EraseUnits(int x, int y, int offset, float count)
 
 void DisplayPrint()
 {
-	static char frequencyAramid[20], frequencyPolyamide[20];
+	static char voltage[20], adcw[20];
 	
-	EraseUnits(0, 0, 0, Measure.Fa);
-	sprintf(frequencyAramid, "A%.1f", Measure.Fa);
-	lcd_puts(frequencyAramid);
+	EraseUnits(0, 0, 2, Convert.voltage);
+	sprintf(voltage, "%.1f V", Convert.voltage);
+	lcd_puts(voltage);
 	
-	EraseUnits(0, 1, 0, Measure.Fp);
-	sprintf(frequencyPolyamide, "P%.1f", Measure.Fp);
-	lcd_puts(frequencyPolyamide);
+	EraseUnits(0, 1, 0, Convert.value);
+	sprintf(adcw, "%d", Convert.value);
+	lcd_puts(adcw);
 }
 
 void Initialization()
@@ -256,7 +226,7 @@ void Initialization()
 	 DDRB = 0b00111111;
 	 PORTB = 0b00000111;
 	 
-	 DDRC = 0b00111111;
+	 DDRC = 0b00111100;
 	 PORTC = 0b00000000;
 	 
 	 DDRD = 0b11001110;
@@ -266,45 +236,39 @@ void Initialization()
 	 lcd_clrscr();
 	 lcd_home();
 	 
-	 MovAvgAramid(0, true);
-	 MovAvgPolyamide(0, true);
+	 MovAvg(0, true);
 	 
-	 Timer0(true);
-	 Timer1(true);
 	 Timer2(true);
+	 Converter(Init);
 	 sei();
  }
 
 #pragma endregion Common functions
 
-void Calculation()
-{
-	Measure.Fa = MovAvgAramid(((255.*Measure.ovf)+TCNT0)*8.008064516129032, false);
-	Measure.Fp = MovAvgPolyamide(TCNT1*8.008064516129032, false);
-	
-	TCNT0 = 0;
-	TCNT1 = 0;
-}
-
 int main(void)
 {
 	Initialization();
+	Converter(On);
 	
 	while(1)
 	{	
+		if (Convert.done)
+		{
+			Convert.voltage = MovAvg(Convert.value*0.0048828125, false);
+			Convert.done = false;
+			Converter(On);
+		}
+		
 		if (MainTimer.ms160)
 		{
-			
+			DisplayPrint();
 			MainTimer.ms160 = 0;
 		}
 		
 		if (MainTimer.ms992)
 		{
-			Calculation();
-			DisplayPrint();	
+			LedInv;	
 			MainTimer.ms992 = 0;
-			TCNT0 = 0;
-			TCNT1 = 0;
 		}
 	}
 }
