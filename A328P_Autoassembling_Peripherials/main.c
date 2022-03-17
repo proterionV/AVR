@@ -51,8 +51,8 @@
 #define TArraySize	10
 #define HArraySize	10
 
-#define RxBufferSize    100
-#define TxBufferSize	100
+#define RxBufferSize    250
+#define TxBufferSize	250
 
 #define NextLine    0x0A
 #define FillCell    0xFF
@@ -321,13 +321,15 @@ void Initialization()
 	lcd_init(LCD_DISP_ON);
 	lcd_clrscr();
 	lcd_home();
+	lcd_puts("Hello");
 	
 	Timer0(true);
 	Timer1(false);
 	Timer2(false);
 	Converter(Off);
 	
-	_delay_ms(2000);
+	_delay_ms(3000);
+	lcd_clrscr();
 	
 	USART(Init);
 	SPI(Off);
@@ -596,33 +598,32 @@ void Transmit()
 
 void ReceiveAuto()
 {
+	static char temp[20];
 	static char RxBuffer[RxBufferSize] = { 0 };
 	static char TxBuffer[TxBufferSize] = { 0 };
-	static char Response[10][20] = { 0 };
-	static unsigned int index = 0, charIndex = 0, wordIndex = 0, position = Before;
+	static char Response[10][100] = { 0 };
+	static unsigned int charIndex = 0, wordIndex = 0, position = Before;
 	
-	if (index >= RxBufferSize-1)
+	if (charIndex >= RxBufferSize-1)
 	{
 		strcpy(TxBuffer, "error: overflow");
 		lcd_clrline(0, 0);
 		lcd_puts(TxBuffer);
 		TxString(TxBuffer);
 		memset(TxBuffer, 0, TxBufferSize);
-		index = 0;
+		charIndex = 0;
 		return;
 	}
 	
 	if (Server.receiving)
 	{ 
-		RxBuffer[index++] = Rx.byte; 
+		RxBuffer[charIndex++] = Rx.byte; 
 		return; 
 	}
 	
-	if (index < 1) return;
+	if (charIndex < 1) return;
 	
-	RxBuffer[index] = StringEnd;
-	index = 0;
-	
+	RxBuffer[charIndex] = StringEnd;
 	wordIndex = 0;
 	charIndex = 0;
 	position = Before;
@@ -664,23 +665,29 @@ void ReceiveAuto()
 		}
 	}
 	
-	if (!Server.connected && strcasecmp(Response[0], "CONNECT") && strcasecmp(Response[1], "OK")) 
+	if (!Server.connected && strcasecmp(Response[1], "CONNECT") && strcasecmp(Response[2], "OK"))
 	{
-		Server.connected = true; 
+		Server.connected = true;
 		Server.tryToConnect = false;
 		
-		lcd_clrline(0, 0);
-		lcd_puts(Response[0]);
-		
-		lcd_clrline(0, 1);
+		lcd_gotoxy(0, 0);
 		lcd_puts(Response[1]);
+		
+		lcd_gotoxy(0, 1);
+		lcd_puts(Response[2]);
+		
+		LedOn;
 	}
 	
-	if (strcasecmp(Response[0], "ERROR"))
-	{
-		lcd_gotoxy(8, 1);
-		lcd_puts(Response[0]);	
-	}
+	//for (int i=0; i<=wordIndex; i++)
+	//{
+		//if (strcasecmp(Response[i], "ERROR"))
+		//{
+			//lcd_clrline(0, 0);
+			//lcd_puts(Response[i]);
+			//return;
+		//}
+	//}
 }
 
 void ReceiveManual()
