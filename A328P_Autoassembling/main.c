@@ -60,6 +60,10 @@
 #define Eraser		' '
 #define StringEnd	'\0'
 
+#define Weak	 50
+#define Strong	 210
+#define OffDelay 1
+
 #include <xc.h>
 #include <avr/io.h>
 #include <float.h>
@@ -159,6 +163,12 @@ volatile struct
 {
 	float Kp, Ki, Kd, Kpid;
 } Factors;
+
+volatile struct
+{
+	bool active;
+	unsigned short delay;
+} Limit;
 
 ISR(TIMER0_OVF_vect)
 {
@@ -736,6 +746,8 @@ void ManualHandle()
 
 bool AutoInit()
 {
+	Limit.delay = 0;
+	Limit.active = true;
 	Menu.autoActive = true;
 	Encoder.addendumChanged = true;
 	Encoder.addendumValues[one] = 1;
@@ -805,6 +817,8 @@ void AutoHandle()
 		Measure.frequency = 0;
 		Convert.value = 0;
 		Convert.tension = 0;
+		Limit.active = true;
+		Limit.delay = 0;
 	}
 }
 
@@ -829,6 +843,9 @@ void Initialization(enum Modes mode, unsigned int method)
 	
 	Measure.method = method;
 	Measure.done = 0;
+	
+	Limit.active = true;
+	Limit.delay = 0;
 }
 
 void MenuReset()
@@ -874,6 +891,22 @@ void Regulator(bool reset)
 	DDS.increment = GetAddendum();
 }
 
+void CheckRanges()
+{
+	if (Limit.active && (Convert.tension > Strong || Convert.tension < Weak)) 
+	{
+		Limit.active = false;
+		PhaseOff;
+	}
+	
+	if (Limit.delay >= OffDelay)
+	{
+		Limit.active = true;
+		Limit.delay = 0;
+		PhaseOn;	
+	}
+}
+
 int main(void)
 {
 	Initialization(Auto, Reporcial);
@@ -908,6 +941,7 @@ int main(void)
 		
 		if (MainTimer.ms160)
 		{
+			CheckRanges();
 			Converter(On);
 			//Transmit();
 			MainTimer.ms160 = 0;
@@ -923,6 +957,8 @@ int main(void)
 		{
 			DisplayPrint();
 			MainTimer.ms992 = 0;
+			
+			if (!Limit.active) Limit.delay++;
 			
 			if (Menu.mode == Auto && ((AutoMode.state == Acceleration) || (AutoMode.state == Deceleration)))
 			{

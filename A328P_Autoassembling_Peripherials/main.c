@@ -5,6 +5,8 @@
  *  Author: igor.abramov
  */ 
 
+#pragma region defines
+
 #define F_CPU	16000000L
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
@@ -69,6 +71,8 @@
 #define After	33
 
 #define Timeout 3
+
+#pragma endregion defines
 
 #pragma region Includes
 
@@ -799,15 +803,6 @@ int main(void)
 				MainTimer.m = 0;
 			}
 			
-			lcd_gotoxy(10, 0);
-			if (Server.tryToConnect) lcd_puts("true"); 
-			if (!Server.tryToConnect) lcd_puts("false");
-			
-			lcd_gotoxy(3, 1);
-			if (Server.connected) lcd_puts("connected");
-			if (!Server.connected) lcd_puts("disconnected");
-			
-			LedInv;
 			MainTimer.ms992 = 0;
 		}
     }
