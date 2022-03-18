@@ -68,6 +68,8 @@
 #define Inside	32
 #define After	33
 
+#define Timeout 3
+
 #pragma region Includes
 
 #include <xc.h>
@@ -123,8 +125,10 @@ volatile struct
 
 volatile struct
 {
-	bool connected, receiving, handling, handled, tryToConnect;
-	unsigned short delay, tryToConnectTimeout;
+	bool tryToConnect, connected;
+	bool awaitAnswer, awaitCommand;
+	bool receiving, handling, handled;
+	unsigned short delay;
 		
 } Server;
 
@@ -319,8 +323,6 @@ void Initialization()
 	DDS.increment = 0;
 	
 	lcd_init(LCD_DISP_ON);
-	lcd_clrscr();
-	lcd_home();
 	lcd_puts("Hello");
 	
 	Timer0(true);
@@ -330,6 +332,7 @@ void Initialization()
 	
 	_delay_ms(3000);
 	lcd_clrscr();
+	lcd_home();
 	
 	USART(Init);
 	SPI(Off);
@@ -598,7 +601,7 @@ void Transmit()
 
 void ReceiveAuto()
 {
-	static char temp[20];
+	static char err[20] = { 0 };
 	static char RxBuffer[RxBufferSize] = { 0 };
 	static char TxBuffer[TxBufferSize] = { 0 };
 	static char Response[10][100] = { 0 };
@@ -607,9 +610,6 @@ void ReceiveAuto()
 	if (charIndex >= RxBufferSize-1)
 	{
 		strcpy(TxBuffer, "error: overflow");
-		lcd_clrline(0, 0);
-		lcd_puts(TxBuffer);
-		TxString(TxBuffer);
 		memset(TxBuffer, 0, TxBufferSize);
 		charIndex = 0;
 		return;
@@ -665,29 +665,31 @@ void ReceiveAuto()
 		}
 	}
 	
-	if (!Server.connected && strcasecmp(Response[1], "CONNECT") && strcasecmp(Response[2], "OK"))
+	if (!Server.connected && !strcasecmp(Response[1], "CONNECT") && !strcasecmp(Response[2], "OK"))
 	{
 		Server.connected = true;
 		Server.tryToConnect = false;
 		
-		lcd_gotoxy(0, 0);
+		lcd_clrline(0, 0);
 		lcd_puts(Response[1]);
 		
-		lcd_gotoxy(0, 1);
+		lcd_clrline(0, 1);
 		lcd_puts(Response[2]);
-		
-		LedOn;
 	}
 	
-	//for (int i=0; i<=wordIndex; i++)
-	//{
-		//if (strcasecmp(Response[i], "ERROR"))
-		//{
-			//lcd_clrline(0, 0);
-			//lcd_puts(Response[i]);
-			//return;
-		//}
-	//}
+	for (int i=0; i<=wordIndex; i++)
+	{
+		if (!strcasecmp(Response[i], "ERROR"))
+		{
+			lcd_clrline(0, 0);
+			lcd_puts(Response[i]);
+			
+			lcd_clrline(0, 1);
+			sprintf(err, "%d", wordIndex);
+			lcd_puts(err);
+			return;
+		}
+	}
 }
 
 void ReceiveManual()
@@ -740,7 +742,8 @@ void ReceiveManual()
 int main(void)
 {
 	Initialization();
-	USART(On);											  
+	USART(On);
+	ConnectToServer();											  
 	
     while(1)
     {
@@ -773,20 +776,14 @@ int main(void)
 		{
 			GetOneWireData(false);
 			
-			if (Server.handled)
-			{
-
-				Server.handled = false;
-			}
-			
-			if (Server.delay > 1) 
+			if (Server.delay == Timeout) 
 			{ 
 				Server.receiving = false; 
 				Server.handling = true;
 				Server.delay = 0; 
 			}
 			
-			if (Server.delay == 1) Server.delay++; 
+			if (Server.delay > 0) Server.delay++; 
 			
 			MainTimer.s++; 
 			
@@ -798,15 +795,19 @@ int main(void)
 			
 			if (MainTimer.m >= 1)
 			{
-				if (Server.tryToConnect)
-				{
-					ConnectToServer();
-					Server.tryToConnect = false;
-				}
-				
+				if (Server.tryToConnect) ConnectToServer();
 				MainTimer.m = 0;
 			}
 			
+			lcd_gotoxy(10, 0);
+			if (Server.tryToConnect) lcd_puts("true"); 
+			if (!Server.tryToConnect) lcd_puts("false");
+			
+			lcd_gotoxy(3, 1);
+			if (Server.connected) lcd_puts("connected");
+			if (!Server.connected) lcd_puts("disconnected");
+			
+			LedInv;
 			MainTimer.ms992 = 0;
 		}
     }
