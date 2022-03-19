@@ -1,7 +1,7 @@
 /*
 Example	setting avrdude with external tool
 Tools -> External Tools -> Arguments:
-avrdude -v -p m2560 -c stk500v2 -P com7 -b 115200 -D -U flash:w:"$(ProjectDir)Debug$(ItemFileName).hex":i
+avrdude -v -p m328p -c arduino -P com6 -b 115200 -D -U flash:w:"$(ProjectDir)Debug$(ItemFileName).hex":i
 */
 
 /*

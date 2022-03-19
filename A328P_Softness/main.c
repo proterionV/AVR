@@ -6,8 +6,6 @@
  * Measure vibration level as softness of paper yarn
  */ 
 
-#pragma region defines
-
 #define F_CPU	16000000L
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
@@ -58,10 +56,6 @@
 #define CR			'\r'
 #define LF			'\n'
 
-#pragma endregion defines
-
-#pragma region Includes
-
 #include <xc.h>
 #include <avr/io.h>
 #include <avr/eeprom.h>
@@ -76,10 +70,6 @@
 #include <util/delay.h>
 #include "lcd/lcd.h"
 
-#pragma endregion Includes
-
-#pragma region Structs
-
 volatile struct
 {
 	volatile unsigned int ms16, ms160, ms992;
@@ -91,10 +81,6 @@ volatile struct
 	float voltage;
 	bool done;
 } Convert;
-
-#pragma endregion Structs
-
-#pragma region Inits, Interrupts
 
 void Timer2(bool enable)
 {
@@ -150,10 +136,6 @@ ISR(ADC_vect)
 	Convert.value = ADCW;
 	Convert.done = true;
 }
-
-#pragma endregion Inits and Interrupts
-
-#pragma region Common functions
 
 float MovAvg(float value, bool reset)
 {
@@ -242,8 +224,6 @@ void Initialization()
 	 Converter(Init);
 	 sei();
  }
-
-#pragma endregion Common functions
 
 int main(void)
 {

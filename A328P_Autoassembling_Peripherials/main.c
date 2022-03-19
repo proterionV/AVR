@@ -5,8 +5,6 @@
  *  Author: igor.abramov
  */ 
 
-#pragma region defines
-
 #define F_CPU	16000000L
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
@@ -72,10 +70,6 @@
 
 #define Timeout 3
 
-#pragma endregion defines
-
-#pragma region Includes
-
 #include <xc.h>
 #include <avr/io.h>
 #include <avr/eeprom.h>
@@ -90,10 +84,6 @@
 #include <util/delay.h>
 #include "lcd/lcd.h"
 #include "dht/dht.h"
-
-#pragma endregion Includes
-
-#pragma region Structs
 
 volatile struct 
 {
@@ -135,10 +125,6 @@ volatile struct
 	unsigned short delay;
 		
 } Server;
-
-#pragma endregion Structs
-
-#pragma region Inits, Interrupts 
 
 void Timer0(bool enable)
 {
@@ -305,10 +291,6 @@ void SPI(unsigned short option)
 	}
 }
 
-#pragma endregion Inits and Interrupts
-
-#pragma region Common functions
-
 void Initialization()
 {
 	DDRB = 0b00111100;
@@ -327,18 +309,14 @@ void Initialization()
 	DDS.increment = 0;
 	
 	lcd_init(LCD_DISP_ON);
-	lcd_puts("Hello");
 	
 	Timer0(true);
 	Timer1(false);
 	Timer2(false);
 	Converter(Off);
 	
-	_delay_ms(3000);
-	lcd_clrscr();
-	lcd_home();
-	
 	USART(Init);
+	USART(On);
 	SPI(Off);
 	sei();
 }
@@ -526,8 +504,6 @@ void DisplayPrint()
 	lcd_puts(tension);
 }
 
-#pragma endregion Common functions
-
 void GetOneWireData(bool enable)
 {
 	static float temperature, humidity;
@@ -577,11 +553,12 @@ unsigned short GetDataSize(float value, unsigned short literalSize)
 	return 0;
 }
 
-void ConnectToServer()
+void ConnectToServer(bool connect)
 {
+	if (connect) TxString("AT+CIPSTART=\"TCP\",\"192.168.43.222\",11000\r\n");
+	else TxString("AT+CIPCLOSE\r\n");
 	Server.receiving = true;
-	Server.delay = 1;
-	TxString("AT+CIPSTART=\"TCP\",\"192.168.43.222\",11000\r\n");
+	Server.delay++;
 }
 
 void SendToServer()
@@ -603,19 +580,29 @@ void Transmit()
 		
 }
 
-void ReceiveAuto()
+void Receive(bool print)
 {
-	static char err[20] = { 0 };
+	static unsigned int charIndex = 0, wordIndex = 0, position = Before, t = 0, r = 0;
 	static char RxBuffer[RxBufferSize] = { 0 };
-	static char TxBuffer[TxBufferSize] = { 0 };
-	static char Response[10][100] = { 0 };
-	static unsigned int charIndex = 0, wordIndex = 0, position = Before;
+	static char TempBuffer[RxBufferSize] = { 0 };
+	static char Response[10][80] = { 0 };
 	
-	if (charIndex >= RxBufferSize-1)
+	if (print)
 	{
-		strcpy(TxBuffer, "error: overflow");
-		memset(TxBuffer, 0, TxBufferSize);
-		charIndex = 0;
+		r = 0;
+		t = 0;
+		
+		while(true)
+		{
+			if (RxBuffer[r] == CR || RxBuffer[r] == LF) { r++; continue; }
+			TempBuffer[t++] = RxBuffer[r];
+			if (RxBuffer[r] == StringEnd) break;
+			r++;
+		}
+		
+		lcd_clrline(0, 0);
+		lcd_puts(TempBuffer);
+		
 		return;
 	}
 	
@@ -623,6 +610,14 @@ void ReceiveAuto()
 	{ 
 		RxBuffer[charIndex++] = Rx.byte; 
 		return; 
+	}
+	
+	if (Server.connected && !Server.receiving && !Server.handling)
+	{
+		RxBuffer[charIndex++] = Rx.byte;
+		Server.receiving = true;
+		Server.delay++;
+		return;		
 	}
 	
 	if (charIndex < 1) return;
@@ -673,12 +668,24 @@ void ReceiveAuto()
 	{
 		Server.connected = true;
 		Server.tryToConnect = false;
-		
 		lcd_clrline(0, 0);
 		lcd_puts(Response[1]);
-		
 		lcd_clrline(0, 1);
 		lcd_puts(Response[2]);
+		return;
+	}
+	
+	if (!strcasecmp(Response[1], "CLOSED") && !strcasecmp(Response[2], "OK"))
+	 {
+		Server.connected = false;
+		return;
+	}
+	 
+	if (!strcasecmp(Response[0], "CLOSED")) 
+	{ 
+		Server.connected = false; 
+		Server.tryToConnect = true; 
+		return;	
 	}
 	
 	for (int i=0; i<=wordIndex; i++)
@@ -687,67 +694,17 @@ void ReceiveAuto()
 		{
 			lcd_clrline(0, 0);
 			lcd_puts(Response[i]);
-			
-			lcd_clrline(0, 1);
-			sprintf(err, "%d", wordIndex);
-			lcd_puts(err);
-			return;
 		}
 	}
-}
-
-void ReceiveManual()
-{
-	static char RxBuffer[RxBufferSize] = { 0 };
-	static char TxBuffer[TxBufferSize] = { 0 };
-	static unsigned int index = 0;
-		
-	if (!(Rx.byte == Terminator))
-	{
-		if (index >= RxBufferSize-1)
-		{
-			strcpy(TxBuffer, "error: overflow");
-			lcd_clrline(0, 0);
-			lcd_puts(TxBuffer);
-			TxString(TxBuffer);
-			memset(TxBuffer, 0, TxBufferSize);
-			index = 0;
-			return;
-		}
-		
-		RxBuffer[index++] = Rx.byte;
-		return;
-	}
-		
-	RxBuffer[index] = StringEnd;
-	index = 0;
-		
-	if (!(strcasecmp(RxBuffer, "led")))
-	{
-		LedInv;
-		lcd_clrline(0, 1);
-		if (Led) { lcd_puts("led on"); TxString("led on"); } else { lcd_puts("led off"); TxString("led off"); }
-	}
-	else if (!(strcasecmp(RxBuffer, "connect")))
-	{
-		ConnectToServer();
-	}
-	else
-	{
-		lcd_clrline(0, 0);
-		lcd_puts(RxBuffer);
-		strcpy(TxBuffer, "unknown: ");
-		strcat(TxBuffer, RxBuffer);
-		TxString(TxBuffer);
-		memset(TxBuffer, 0, TxBufferSize);
-	}
+	
+	charIndex = 0;
 }
 
 int main(void)
 {
-	Initialization();
-	USART(On);
-	ConnectToServer();											  
+	int button = 0;
+	
+	Initialization();											  
 	
     while(1)
     {
@@ -765,19 +722,32 @@ int main(void)
 		
 		if (Rx.byteReceived || Server.handling)
 		{
-			ReceiveAuto();
+			Receive(false);
 			Rx.byteReceived = false;
 			Server.handling = false;
 		}
 		
         if (MainTimer.ms160)
         {
-			Converter(On);
+			Converter(Off);
+			
+			if (Enter) button = 0;
+			{
+				if (!Enter) button++;
+				{
+					if (button == 1)
+					{
+						Receive(true);
+					}
+				}
+			}
+			
 	        MainTimer.ms160 = 0;
         }
 		
 		if (MainTimer.ms992)
 		{
+			LedInv;
 			GetOneWireData(false);
 			
 			if (Server.delay == Timeout) 
@@ -787,22 +757,15 @@ int main(void)
 				Server.delay = 0; 
 			}
 			
-			if (Server.delay > 0) Server.delay++; 
+			if (Server.delay > 0) Server.delay++;  
 			
-			MainTimer.s++; 
-			
-			if (MainTimer.s >= 60)
+			if (MainTimer.s >= 10)
 			{
-				MainTimer.m++;
+				if (Server.tryToConnect) ConnectToServer(true);
 				MainTimer.s = 0;
 			}
 			
-			if (MainTimer.m >= 1)
-			{
-				if (Server.tryToConnect) ConnectToServer();
-				MainTimer.m = 0;
-			}
-			
+			MainTimer.s++;
 			MainTimer.ms992 = 0;
 		}
     }

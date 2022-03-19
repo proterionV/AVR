@@ -893,8 +893,11 @@ void Regulator(bool reset)
 
 void CheckRanges()
 {
+	if (Menu.mode == Auto && AutoMode.state == Acceleration) return;
+	
 	if (Limit.active && (Convert.tension > Strong || Convert.tension < Weak)) 
 	{
+		if (Menu.mode == Manual && Convert.tension < Weak)  return;
 		Limit.active = false;
 		PhaseOff;
 	}

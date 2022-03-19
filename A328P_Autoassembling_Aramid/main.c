@@ -9,8 +9,6 @@
   Frequency comparer with counter inputs
 */
 
-#pragma region defines
-
 #define F_CPU	16000000L
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
@@ -61,10 +59,6 @@
 #define CR			'\r'
 #define LF			'\n'
 
-#pragma endregion defines
-
-#pragma region Includes
-
 #include <xc.h>
 #include <avr/io.h>
 #include <avr/eeprom.h>
@@ -79,10 +73,6 @@
 #include <util/delay.h>
 #include "lcd/lcd.h"
 
-#pragma endregion Includes
-
-#pragma region Structs
-
 volatile struct
 {
 	volatile unsigned int ms16, ms160, ms992;
@@ -93,10 +83,6 @@ volatile struct
 	unsigned int pulseA, pulseP, ovf;
 	float Fa, Fp;
 } Measure;
-
-#pragma endregion Structs
-
-#pragma region Inits, Interrupts
 
 void Timer0(bool enable)
 {
@@ -159,10 +145,6 @@ ISR(TIMER2_OVF_vect)
 	
 	TCNT2 = 5;
 }
-
-#pragma endregion Inits and Interrupts
-
-#pragma region Common functions
 
 float MovAvgAramid(float value, bool reset)
 {
@@ -274,8 +256,6 @@ void Initialization()
 	 Timer2(true);
 	 sei();
  }
-
-#pragma endregion Common functions
 
 void Calculation()
 {
