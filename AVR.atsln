@@ -44,14 +44,14 @@ Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Autoassembling", "A32
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "uart", "uart", "{4DE09882-178B-43FA-AEB6-7F9DF21FAF73}"
 	ProjectSection(SolutionItems) = preProject
-		..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.c = ..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.c
-		..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.h = ..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.h
+		..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.c = ..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.c
+		..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.h = ..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\uart\uart.h
 	EndProjectSection
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dht", "dht", "{D265520E-71CA-4444-A9B3-13776C9E11C0}"
 	ProjectSection(SolutionItems) = preProject
-		..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.c = ..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.c
-		..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.h = ..\..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.h
+		..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.c = ..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.c
+		..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.h = ..\Users\igor.abramov\Downloads\avr_lib_dht_03\src\dht\dht.h
 	EndProjectSection
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Autoassembling_Peripherials", "A328P_Autoassembling_Peripherials\A328P_Autoassembling_Peripherials.cproj", "{AB5D7F48-67F7-4DDC-9FB3-CC484631B507}"

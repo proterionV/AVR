@@ -52,13 +52,15 @@
 #define HArraySize	10
 
 #define RxBufferSize    250
-#define TxBufferSize	250
+#define TxBufferSize	100
+#define TempBufferSize  20
 
 #define NextLine    0x0A
 #define FillCell    0xFF
 #define Terminator  '$'
 #define Arrow		'>'
 #define Eraser		' '
+#define BufferEnd   '#'
 #define StringEnd	'\0'
 #define CR			'\r'
 #define LF			'\n'
@@ -120,8 +122,8 @@ volatile struct
 volatile struct
 {
 	bool tryToConnect, connected;
-	bool awaitAnswer, awaitCommand;
-	bool receiving, handling, handled;
+	bool receiving, handling;
+	bool building, sending;
 	unsigned short delay;
 		
 } Server;
@@ -302,18 +304,18 @@ void Initialization()
 	DDRD = 0b11001110;
 	PORTD = 0b00110011;
 	
+	lcd_init(LCD_DISP_ON);
+	
 	Server.tryToConnect = true;
 	
 	DDS.frequencyMax = 7812;
 	DDS.accumMax = 1000000000;
 	DDS.increment = 0;
 	
-	lcd_init(LCD_DISP_ON);
-	
 	Timer0(true);
-	Timer1(false);
-	Timer2(false);
-	Converter(Off);
+	Timer1(true);
+	Timer2(true);
+	Converter(Init);
 	
 	USART(Init);
 	USART(On);
@@ -543,68 +545,69 @@ void Calculation(unsigned short parameter)
 	Measure.zero = false;
 }
 
-unsigned short GetDataSize(float value, unsigned short literalSize)
+unsigned short GetDataSize(char *buffer)
 {
-	if (value < 10)	return literalSize + 3 + 1; // literal size (F, Tn...) + figures quantity + Terminator
-	if (value < 100) return literalSize + 4 + 1;
-	if (value < 1000) return literalSize + 5 + 1;
-	if (value < 10000) return literalSize + 6 + 1;
-	if (value < 100000) return literalSize + 7 + 1;
-	return 0;
+	int count = 0;
+	
+	for (int i=0;i<100; i++)
+	{
+		if (buffer[i] == BufferEnd) break;
+		count++;
+	}
+	
+	return count;	
 }
 
 void ConnectToServer(bool connect)
 {
-	if (connect) TxString("AT+CIPSTART=\"TCP\",\"192.168.43.222\",11000\r\n");
+	if (connect) TxString("AT+CIPSTART=\"TCP\",\"192.168.43.108\",11000\r\n");
 	else TxString("AT+CIPCLOSE\r\n");
 	Server.receiving = true;
 	Server.delay++;
 }
 
-void SendToServer()
-{
-	static unsigned short size = 0;
-	static char frequency[20], sizeBuffer[10], buffer[100];
-	
-	size = GetDataSize(Measure.frequency, 1);
-	sprintf(frequency, "F%.1f$", Measure.frequency);
-	sprintf(sizeBuffer, "%.d", size);
-	strcat(buffer, "AT+CIPSEND=");
-	strcat(buffer, sizeBuffer);
-	TxString(buffer);
-	TxString(frequency);
-}
-
 void Transmit()
 {
+	static char TxBuffer[TxBufferSize] = { 0 };
+	static char Temp[TempBufferSize] = { 0 };
+	
+	if (Server.building)
+	{
+		char Command[TempBufferSize] = "AT+CIPSEND=";
 		
+		sprintf(Temp, "F%.1f$", Measure.frequency);
+		strcat(TxBuffer, Temp);
+		sprintf(Temp, "Tn%.1f$", Measure.tension);
+		strcat(TxBuffer, Temp);
+		sprintf(Temp, "T%.1f$", Measure.temperature);
+		strcat(TxBuffer, Temp);
+		sprintf(Temp, "H%.1f$", Measure.humidity);
+		strcat(TxBuffer, Temp);
+		sprintf(Temp, "K%.3f#", DDS.frequency);
+		strcat(TxBuffer, Temp);
+		
+		sprintf(Temp, "%d\r\n", GetDataSize(TxBuffer));
+		strcat(Command, Temp);
+		
+		TxString(Command);
+		
+		Server.building = false;
+		return;	
+	}
+	
+	if (Server.sending)
+	{
+		TxString(TxBuffer);
+		Server.sending = false;
+		memset(TxBuffer, 0, TxBufferSize);
+	}		
 }
 
-void Receive(bool print)
+void Receive()
 {
-	static unsigned int charIndex = 0, wordIndex = 0, position = Before, t = 0, r = 0;
+	static unsigned int charIndex = 0, wordIndex = 0, position = Before;
 	static char RxBuffer[RxBufferSize] = { 0 };
-	static char TempBuffer[RxBufferSize] = { 0 };
 	static char Response[10][80] = { 0 };
-	
-	if (print)
-	{
-		r = 0;
-		t = 0;
-		
-		while(true)
-		{
-			if (RxBuffer[r] == CR || RxBuffer[r] == LF) { r++; continue; }
-			TempBuffer[t++] = RxBuffer[r];
-			if (RxBuffer[r] == StringEnd) break;
-			r++;
-		}
-		
-		lcd_clrline(0, 0);
-		lcd_puts(TempBuffer);
-		
-		return;
-	}
 	
 	if (Server.receiving)
 	{ 
@@ -660,18 +663,25 @@ void Receive(bool print)
 		}
 		else 
 		{
-
+				
 		}
 	}
+	
+	charIndex = 0;
 	
 	if (!Server.connected && !strcasecmp(Response[1], "CONNECT") && !strcasecmp(Response[2], "OK"))
 	{
 		Server.connected = true;
 		Server.tryToConnect = false;
-		lcd_clrline(0, 0);
-		lcd_puts(Response[1]);
-		lcd_clrline(0, 1);
-		lcd_puts(Response[2]);
+		lcd_clrline(0, 0, Response[1]);
+		lcd_clrline(0, 1, Response[2]);
+		return;
+	}
+	
+	if (!Server.connected)
+	{
+		lcd_clrline(0, 0, "Error");
+		lcd_clrline(0, 1, "Timeout");
 		return;
 	}
 	
@@ -684,7 +694,9 @@ void Receive(bool print)
 	if (!strcasecmp(Response[0], "CLOSED")) 
 	{ 
 		Server.connected = false; 
-		Server.tryToConnect = true; 
+		Server.tryToConnect = true;
+		lcd_clrline(0, 0, Response[0]);
+		lcd_clrline(0, 1, "               ");
 		return;	
 	}
 	
@@ -692,18 +704,28 @@ void Receive(bool print)
 	{
 		if (!strcasecmp(Response[i], "ERROR"))
 		{
-			lcd_clrline(0, 0);
-			lcd_puts(Response[i]);
+			lcd_clrline(0, 0, Response[i]);
+			return;
 		}
 	}
 	
-	charIndex = 0;
+	if (!strcasecmp(Response[0], "+IPD,3:Get"))
+	{
+		Server.building = true;
+		return;			
+	}
+	
+	if (Response[2][0] == Arrow)
+	{
+		Server.sending = true;
+		return;
+	}
+
+	lcd_clrline(0, 1, Response[0]);
 }
 
 int main(void)
 {
-	int button = 0;
-	
 	Initialization();											  
 	
     while(1)
@@ -722,25 +744,13 @@ int main(void)
 		
 		if (Rx.byteReceived || Server.handling)
 		{
-			Receive(false);
+			Receive();
 			Rx.byteReceived = false;
 			Server.handling = false;
 		}
 		
         if (MainTimer.ms160)
         {
-			Converter(Off);
-			
-			if (Enter) button = 0;
-			{
-				if (!Enter) button++;
-				{
-					if (button == 1)
-					{
-						Receive(true);
-					}
-				}
-			}
 			
 	        MainTimer.ms160 = 0;
         }
@@ -748,7 +758,9 @@ int main(void)
 		if (MainTimer.ms992)
 		{
 			LedInv;
-			GetOneWireData(false);
+			GetOneWireData(true);
+			Converter(On);
+			Transmit();
 			
 			if (Server.delay == Timeout) 
 			{ 
