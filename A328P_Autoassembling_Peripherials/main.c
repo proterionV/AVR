@@ -70,7 +70,7 @@
 #define Inside	32
 #define After	33
 
-#define Timeout 3
+#define Timeout 2
 
 #include <xc.h>
 #include <avr/io.h>
@@ -78,10 +78,8 @@
 #include <avr/interrupt.h>
 #include <float.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
-#include <math.h>
 #include <stdbool.h>
 #include <util/delay.h>
 #include "lcd/lcd.h"
@@ -89,7 +87,7 @@
 
 volatile struct 
 {
-	volatile unsigned int ms16, ms160, ms992, s, m, m2;
+	volatile unsigned int ms16, ms160, ms992, s;
 } MainTimer;
 
 volatile struct 
@@ -124,7 +122,8 @@ volatile struct
 	bool tryToConnect, connected;
 	bool receiving, handling;
 	bool building, sending;
-	unsigned short delay;
+	bool reset;
+	unsigned short delay, timeout;
 		
 } Server;
 
@@ -227,7 +226,7 @@ void Converter(unsigned short option)
 			 break;
 		 default:
 			 ADCSRA = 0x8F;
-			 ADMUX = 0x46;
+			 ADMUX = 0x40;
 			 ADCSRA |= (0<<ADSC);
 			 break;
 	 }
@@ -295,8 +294,8 @@ void SPI(unsigned short option)
 
 void Initialization()
 {
-	DDRB = 0b00111100;
-	PORTB = 0b00000111;
+	DDRB = 0b00111110;
+	PORTB = 0b00000001;
 	
 	DDRC = 0b00111111;
 	PORTC = 0b00000000;
@@ -307,15 +306,16 @@ void Initialization()
 	lcd_init(LCD_DISP_ON);
 	
 	Server.tryToConnect = true;
+	Server.delay = -1;
 	
 	DDS.frequencyMax = 7812;
 	DDS.accumMax = 1000000000;
 	DDS.increment = 0;
-	
+
 	Timer0(true);
 	Timer1(true);
 	Timer2(true);
-	Converter(Init);
+	Converter(On);
 	
 	USART(Init);
 	USART(On);
@@ -455,30 +455,28 @@ void SetIncrement(unsigned int frequency)
 
 void EraseUnits(int x, int y, int offset, float count)
 {
-	char eraser = 32;
-
 	if (count<10000)
 	{
 		lcd_gotoxy(x+offset+4,y);
-		lcd_putc(eraser);
+		lcd_putc(Eraser);
 	}
 	
 	if (count<1000)
 	{
 		lcd_gotoxy(x+offset+3,y);
-		lcd_putc(eraser);
+		lcd_putc(Eraser);
 	}
 	
 	if (count<100)
 	{
 		lcd_gotoxy(x+offset+2,y);
-		lcd_putc(eraser);
+		lcd_putc(Eraser);
 	}
 	
 	if (count<10)
 	{
 		lcd_gotoxy(x+offset+1,y);
-		lcd_putc(eraser);
+		lcd_putc(Eraser);
 	}
 	
 	
@@ -487,23 +485,11 @@ void EraseUnits(int x, int y, int offset, float count)
 
 void DisplayPrint()
 {
-	static char frequency[20], temperature[20], humidity[20], tension[20];
-	
-	EraseUnits(0, 0, 0, Measure.temperature);
-	sprintf(temperature, "T%.1f", Measure.temperature);
-	lcd_puts(temperature);
-	
-	EraseUnits(0, 1, 2, Measure.humidity);
-	sprintf(humidity, "H%.1f", Measure.humidity);
-	lcd_puts(humidity);
+	static char frequency[20];
 	
 	EraseUnits(8, 0, 0, Measure.frequency);
 	sprintf(frequency, "F%.1f", Measure.frequency);
 	lcd_puts(frequency);
-	
-	EraseUnits(8, 1, 0, Measure.tension);
-	sprintf(tension, "Tn%.1f", Measure.tension);
-	lcd_puts(tension);
 }
 
 void GetOneWireData(bool enable)
@@ -560,6 +546,8 @@ unsigned short GetDataSize(char *buffer)
 
 void ConnectToServer(bool connect)
 {
+	Server.connected = false;
+	Server.tryToConnect = true;
 	if (connect) TxString("AT+CIPSTART=\"TCP\",\"192.168.43.108\",11000\r\n");
 	else TxString("AT+CIPCLOSE\r\n");
 	Server.receiving = true;
@@ -667,21 +655,13 @@ void Receive()
 		}
 	}
 	
+	Server.timeout = 0;
 	charIndex = 0;
 	
 	if (!Server.connected && !strcasecmp(Response[1], "CONNECT") && !strcasecmp(Response[2], "OK"))
 	{
 		Server.connected = true;
 		Server.tryToConnect = false;
-		lcd_clrline(0, 0, Response[1]);
-		lcd_clrline(0, 1, Response[2]);
-		return;
-	}
-	
-	if (!Server.connected)
-	{
-		lcd_clrline(0, 0, "Error");
-		lcd_clrline(0, 1, "Timeout");
 		return;
 	}
 	
@@ -695,8 +675,6 @@ void Receive()
 	{ 
 		Server.connected = false; 
 		Server.tryToConnect = true;
-		lcd_clrline(0, 0, Response[0]);
-		lcd_clrline(0, 1, "               ");
 		return;	
 	}
 	
@@ -720,8 +698,6 @@ void Receive()
 		Server.sending = true;
 		return;
 	}
-
-	lcd_clrline(0, 1, Response[0]);
 }
 
 int main(void)
@@ -766,10 +742,10 @@ int main(void)
 			{ 
 				Server.receiving = false; 
 				Server.handling = true;
-				Server.delay = 0; 
+				Server.delay = -1; 
 			}
 			
-			if (Server.delay > 0) Server.delay++;  
+			if (Server.delay >= 0) Server.delay++;  
 			
 			if (MainTimer.s >= 10)
 			{
@@ -777,7 +753,14 @@ int main(void)
 				MainTimer.s = 0;
 			}
 			
+			if (Server.timeout >= 30)
+			{
+				ConnectToServer(false);
+				Server.timeout = 0;
+			}
+			
 			MainTimer.s++;
+			Server.timeout++;
 			MainTimer.ms992 = 0;
 		}
     }
