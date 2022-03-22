@@ -21,43 +21,23 @@
 #define LedOff  Low(PORTB, 5)
 #define LedInv  Inv(PORTB, 5)
 
-#define Right    (~PIND & (1<<2))
-#define Left     (~PIND & (1<<3))
-#define Enter    (PIND  & (1<<4))
+#define ForwardState	Check(PORTD, 6)
+#define ForwardOn		High(PORTD, 6)
+#define ForwardOff		Low(PORTD, 6)
+#define ForwardInv		Inv(PORTD, 6)
 
-#define BtnReset (Check(PINC, 6))
+#define BackyardState	Check(PORTD, 7)
+#define BackyardOn		High(PORTD, 7)
+#define BackyardOff		Low(PORTD, 7)
+#define BackyardInv		Inv(PORTD, 7)
 
-#define Activity (!Check(PIND, 5))
+#define Stop		0
+#define Forward	 	1
+#define Backyard 	2
+#define Inversion	3
+#define Error		4
 
-#define Phase    (Check(PORTD, 6))
-#define PhaseOn  High(PORTD, 6)
-#define PhaseOff Low(PORTD, 6)
-#define PhaseInv Inv(PORTD, 6)
-
-#define Init	 0
-#define On		 1
-#define Off		 2
-#define TxOn	 3
-#define TxOff	 4
-#define RxOn	 5
-#define RxOff	 6
-
-#define StartSPI	Low(PORTB, 2)
-#define EndSPI		High(PORTB, 2)
-
-#define MovAvgSize	50
-
-#define RxBufferSize    100
-#define TxBufferSize	100
-
-#define NextLine    0x0A
-#define FillCell    0xFF
-#define Terminator  '$'
-#define Arrow		'>'
-#define Eraser		' '
-#define StringEnd	'\0'
-#define CR			'\r'
-#define LF			'\n'
+#define MovAvgSize	2
 
 #include <xc.h>
 #include <avr/io.h>
@@ -88,7 +68,7 @@ void Timer0(bool enable)
 {
 	if (enable)
 	{
-		TCCR0B = (1 << CS02)|(1 << CS01)|(0 << CS00);
+		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);
 		TIMSK0 = (1 << TOIE0);
 		TCNT0 = 0;
 		return;
@@ -108,7 +88,7 @@ void Timer1(bool enable)
 {
 	if (enable)
 	{
-		TCCR1B = (1 << CS12)|(1 << CS11)|(0 << CS10);
+		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);
 		return;
 	}
 	
@@ -120,7 +100,7 @@ void Timer2(bool enable)
 {
 	if (enable)
 	{
-		TCCR2B = (1 << CS22)|(0 << CS21)|(1 << CS20);
+		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);
 		TIMSK2 = (1 << TOIE2);
 		TCNT2 = 0;
 		return;
@@ -144,6 +124,42 @@ ISR(TIMER2_OVF_vect)
 	}
 	
 	TCNT2 = 5;
+}
+
+unsigned short CurrentMotorDirection()
+{
+	if (ForwardState && BackyardState) return Error;
+	if (ForwardState)  return Forward;
+	if (BackyardState) return Backyard;
+	return Stop;
+}
+
+void MotorDirection(unsigned short option)
+{
+	static unsigned short direction;
+	
+	switch (option)
+	{
+		case Forward:
+		BackyardOff;
+		ForwardOn;
+		break;
+		case Backyard:
+		ForwardOff;
+		BackyardOn;
+		break;
+		case Inversion:
+		direction = CurrentMotorDirection();
+		MotorDirection(Stop);
+		if (direction == Stop) MotorDirection(Forward);
+		if (direction == Forward) MotorDirection(Backyard);
+		if (direction == Backyard) MotorDirection(Forward);
+		break;
+		default:
+		ForwardOff;
+		BackyardOff;
+		break;
+	}
 }
 
 float MovAvgAramid(float value, bool reset)
@@ -223,14 +239,22 @@ void EraseUnits(int x, int y, int offset, float count)
 void DisplayPrint()
 {
 	static char frequencyAramid[20], frequencyPolyamide[20];
-	
-	EraseUnits(0, 0, 0, Measure.Fa);
-	sprintf(frequencyAramid, "A%.1f", Measure.Fa);
+	static unsigned short direction;
+	 
+	EraseUnits(0, 0, 3, Measure.Fa);
+	sprintf(frequencyAramid, "%.1f Hz", Measure.Fa);
 	lcd_puts(frequencyAramid);
 	
-	EraseUnits(0, 1, 0, Measure.Fp);
-	sprintf(frequencyPolyamide, "P%.1f", Measure.Fp);
+	EraseUnits(0, 1, 3, Measure.Fp);
+	sprintf(frequencyPolyamide, "%.1f Hz", Measure.Fp);
 	lcd_puts(frequencyPolyamide);
+	
+	lcd_clrline(9, 0);
+	direction = CurrentMotorDirection();
+	if (direction == Stop)	   lcd_puts("Stop");
+	if (direction == Forward)  lcd_puts("Forth");
+	if (direction == Backyard) lcd_puts("Back");
+	if (direction == Error)	   lcd_puts("Error");	
 }
 
 void Initialization()
@@ -243,6 +267,9 @@ void Initialization()
 	 
 	 DDRD = 0b11001110;
 	 PORTD = 0b00110011;
+	 
+	 ForwardOff;
+	 BackyardOff;
 	 
 	 lcd_init(LCD_DISP_ON);
 	 lcd_clrscr();
@@ -259,11 +286,27 @@ void Initialization()
 
 void Calculation()
 {
-	Measure.Fa = MovAvgAramid(((255.*Measure.ovf)+TCNT0)*8.008064516129032, false);
-	Measure.Fp = MovAvgPolyamide(TCNT1*8.008064516129032, false);
+	Measure.Fa = MovAvgAramid(((255.*Measure.ovf)+TCNT0)*6.25, false);	 //1.008064516129032 
+	Measure.Fp = MovAvgPolyamide(TCNT1*6.25, false);
 	
 	TCNT0 = 0;
 	TCNT1 = 0;
+}
+
+void Regulator(unsigned short option)
+{
+	static float difference = 0;
+	
+	difference = Measure.Fa - Measure.Fp;
+	
+	if (difference >= -1 && difference <= 1) 
+	{
+		if (CurrentMotorDirection() == Stop) return;
+		MotorDirection(Stop);
+		return;
+	}
+	
+	if (difference > 1) MotorDirection(Forward); else MotorDirection(Backyard);	
 }
 
 int main(void)
@@ -274,17 +317,16 @@ int main(void)
 	{	
 		if (MainTimer.ms160)
 		{
-			
+			Calculation();
 			MainTimer.ms160 = 0;
 		}
 		
 		if (MainTimer.ms992)
 		{
-			Calculation();
-			DisplayPrint();	
+			LedInv;
+			Regulator(0);
+			DisplayPrint();
 			MainTimer.ms992 = 0;
-			TCNT0 = 0;
-			TCNT1 = 0;
 		}
 	}
 }
