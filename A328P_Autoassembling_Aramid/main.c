@@ -37,7 +37,7 @@
 #define Inversion	3
 #define Error		4
 
-#define MovAvgSize	2
+#define MovAvgSize	5
 
 #include <xc.h>
 #include <avr/io.h>
@@ -293,7 +293,7 @@ void Calculation()
 	TCNT1 = 0;
 }
 
-void Regulator(unsigned short option)
+void Regulator()
 {
 	static float difference = 0;
 	
@@ -324,7 +324,7 @@ int main(void)
 		if (MainTimer.ms992)
 		{
 			LedInv;
-			Regulator(0);
+			Regulator();
 			DisplayPrint();
 			MainTimer.ms992 = 0;
 		}
