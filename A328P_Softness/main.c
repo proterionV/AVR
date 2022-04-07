@@ -42,7 +42,7 @@
 #define StartSPI	Low(PORTB, 2)
 #define EndSPI		High(PORTB, 2)
 
-#define MovAvgSize	2
+#define MovAvgSize	10
 
 #define RxBufferSize    100
 #define TxBufferSize	100
@@ -78,9 +78,15 @@ volatile struct
 volatile struct
 {
 	signed int value;
-	float voltage;
+	float voltage, avg, kalman;
 	bool done;
 } Convert;
+
+volatile struct
+{
+	unsigned char byte;
+	bool byteReceived;
+} Rx;
 
 void Timer2(bool enable)
 {
@@ -124,7 +130,7 @@ void Converter(unsigned short option)
 		break;
 		default:
 		ADCSRA = 0x8F;
-		ADMUX = 0x41;
+		ADMUX = 0x40;
 		ADCSRA |= (0<<ADSC);
 		break;
 	}
@@ -135,6 +141,42 @@ ISR(ADC_vect)
 	Converter(Off);
 	Convert.value = ADCW;
 	Convert.done = true;
+}
+
+void USART(unsigned short option)
+{
+	switch (option)
+	{
+		case TxOn:
+			UCSR0B |= (1 << TXEN0);
+			break;
+		case TxOff:
+			UCSR0B |= (0 << TXEN0);
+			break;
+		case RxOn:
+			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			break;
+		case RxOff:
+			UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			break;
+		case On:
+			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			break;
+		case Off:
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			break;
+		default:
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+			UBRR0  =  3;
+			break;
+	}
+}
+
+ISR(USART_RX_vect)
+{
+	Rx.byte = UDR0;
+	Rx.byteReceived++;
 }
 
 float MovAvg(float value, bool reset)
@@ -156,6 +198,38 @@ float MovAvg(float value, bool reset)
 	index = (index + 1) % MovAvgSize;
 	
 	return result/MovAvgSize;
+}
+
+float Kalman(float value, bool reset)
+{
+	static float measureVariation = 5, estimateVariation = 0.20, speedVariation = 0.01;
+	static float CurrentEstimate = 0;
+	static float LastEstimate = 0;
+	static float Gain = 0;
+	
+	if (reset)
+	{
+		CurrentEstimate = 0;
+		LastEstimate = 0;
+		Gain = 0;
+	}
+	
+	Gain = estimateVariation / (estimateVariation + measureVariation);
+	CurrentEstimate = LastEstimate + Gain * (value - LastEstimate);
+	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
+	LastEstimate = CurrentEstimate;
+	return CurrentEstimate;
+}
+
+void TxChar(unsigned char c)
+{
+	while (!(UCSR0A & (1<<UDRE0)));
+	UDR0 = c;
+}
+
+void TxString(const char* s)
+{
+	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
 void EraseUnits(int x, int y, int offset, float count)
@@ -192,15 +266,19 @@ void EraseUnits(int x, int y, int offset, float count)
 
 void DisplayPrint()
 {
-	static char voltage[20], adcw[20];
+	static char voltage[20], avg[20], kalman[20];
 	
-	EraseUnits(0, 0, 2, Convert.voltage);
-	sprintf(voltage, "%.1f V", Convert.voltage);
+	EraseUnits(0, 0, 0, Convert.voltage);
+	sprintf(voltage, "%.1f", Convert.voltage);
 	lcd_puts(voltage);
 	
-	EraseUnits(0, 1, 0, Convert.value);
-	sprintf(adcw, "%d", Convert.value);
-	lcd_puts(adcw);
+	EraseUnits(0, 1, 0, Convert.avg);
+	sprintf(avg, "%.1f", Convert.avg);
+	lcd_puts(avg);
+	
+	EraseUnits(10, 0, 0, Convert.kalman);
+	sprintf(kalman, "%.1f", Convert.kalman);
+	lcd_puts(kalman);
 }
 
 void Initialization()
@@ -219,24 +297,37 @@ void Initialization()
 	 lcd_home();
 	 
 	 MovAvg(0, true);
+	 Kalman(0, true);
 	 
 	 Timer2(true);
 	 Converter(Init);
 	 sei();
  }
 
+void Transmit(float value)
+{
+	char voltage[20] = { 0 };
+	sprintf(voltage, "%.1f,", value);
+	TxString(voltage);	
+}
+
 int main(void)
 {
 	Initialization();
 	Converter(On);
+	USART(Init);
+	USART(TxOn);
 	
 	while(1)
 	{	
 		if (Convert.done)
 		{
-			Convert.voltage = MovAvg(Convert.value*0.0048828125, false);
-			Convert.done = false;
+			Convert.voltage = Convert.value*0.0048875855327468;
+			Convert.avg = MovAvg(Convert.voltage, false);
+			Convert.kalman = Kalman(Convert.voltage, false);
+			Transmit(Convert.voltage);
 			Converter(On);
+			Convert.done = false;
 		}
 		
 		if (MainTimer.ms160)
