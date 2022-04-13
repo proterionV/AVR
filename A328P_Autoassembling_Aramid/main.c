@@ -7,6 +7,7 @@
 
 /*
   Frequency comparer with counter inputs
+  IR Receiver with continue receive will be down after 530 ms
 */
 
 #define F_CPU	16000000L
@@ -16,26 +17,32 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= (0<<BIT))
 
-#define Led     Check(PORTB, 5)
-#define LedOn   High(PORTB, 5)
-#define LedOff  Low(PORTB, 5)
-#define LedInv  Inv(PORTB, 5)
+#define Led			Check(PORTB, 5)
+#define LedOn		High(PORTB, 5)
+#define LedOff		Low(PORTB, 5)
+#define LedInv		Inv(PORTB, 5)
 
-#define ForwardState	Check(PORTD, 6)
-#define ForwardOn		High(PORTD, 6)
-#define ForwardOff		Low(PORTD, 6)
-#define ForwardInv		Inv(PORTD, 6)
+#define Pulse		Check(PORTD, 7)
+#define PulseOn		High(PORTD, 7)
+#define PulseOff	Low(PORTD, 7)
+#define PulseInv	Inv(PORTD, 7)
 
-#define BackyardState	Check(PORTD, 7)
-#define BackyardOn		High(PORTD, 7)
-#define BackyardOff		Low(PORTD, 7)
-#define BackyardInv		Inv(PORTD, 7)
+#define RightOn		(!Check(PIND, 2)) 
+#define LeftOn		(!Check(PIND, 3))
+#define Active		(!Check(PIND, 6))
 
-#define Stop		0
-#define Forward	 	1
-#define Backyard 	2
-#define Inversion	3
-#define Error		4
+#define Right	 		10
+#define Left 			20
+#define Stop			30
+#define Short			40
+
+#define Acceleration	1
+#define Deceleration	2
+#define Waiting			3
+#define Process			4
+
+#define AccelDelay	10
+#define DecelDelay	5
 
 #define MovAvgSize	5
 
@@ -56,6 +63,7 @@
 volatile struct
 {
 	volatile unsigned int ms16, ms160, ms992;
+	bool moving, done;
 } MainTimer;
 
 volatile struct
@@ -63,6 +71,13 @@ volatile struct
 	unsigned int pulseA, pulseP, ovf;
 	float Fa, Fp;
 } Measure;
+
+volatile struct
+{
+	unsigned short mode;
+	unsigned short count;
+	bool active;		
+} Mode;
 
 void Timer0(bool enable)
 {
@@ -123,43 +138,15 @@ ISR(TIMER2_OVF_vect)
 		MainTimer.ms16 = 0;
 	}
 	
-	TCNT2 = 5;
-}
-
-unsigned short CurrentMotorDirection()
-{
-	if (ForwardState && BackyardState) return Error;
-	if (ForwardState)  return Forward;
-	if (BackyardState) return Backyard;
-	return Stop;
-}
-
-void MotorDirection(unsigned short option)
-{
-	static unsigned short direction;
-	
-	switch (option)
+	if (MainTimer.done) 
 	{
-		case Forward:
-		BackyardOff;
-		ForwardOn;
-		break;
-		case Backyard:
-		ForwardOff;
-		BackyardOn;
-		break;
-		case Inversion:
-		direction = CurrentMotorDirection();
-		MotorDirection(Stop);
-		if (direction == Stop) MotorDirection(Forward);
-		if (direction == Forward) MotorDirection(Backyard);
-		if (direction == Backyard) MotorDirection(Forward);
-		break;
-		default:
-		ForwardOff;
-		BackyardOff;
-		break;
+		MainTimer.moving = false;
+		MainTimer.done = false;	
 	}
+	
+	if (MainTimer.moving) MainTimer.done++; 
+	
+	TCNT2 = 5;
 }
 
 float MovAvgAramid(float value, bool reset)
@@ -239,7 +226,8 @@ void EraseUnits(int x, int y, int offset, float count)
 void DisplayPrint()
 {
 	static char frequencyAramid[20], frequencyPolyamide[20];
-	static unsigned short direction;
+	
+	if (Mode.mode == Waiting) return;
 	 
 	EraseUnits(0, 0, 3, Measure.Fa);
 	sprintf(frequencyAramid, "%.1f Hz", Measure.Fa);
@@ -248,13 +236,6 @@ void DisplayPrint()
 	EraseUnits(0, 1, 3, Measure.Fp);
 	sprintf(frequencyPolyamide, "%.1f Hz", Measure.Fp);
 	lcd_puts(frequencyPolyamide);
-	
-	lcd_clrline(9, 0);
-	direction = CurrentMotorDirection();
-	if (direction == Stop)	   lcd_puts("Stop");
-	if (direction == Forward)  lcd_puts("Forth");
-	if (direction == Backyard) lcd_puts("Back");
-	if (direction == Error)	   lcd_puts("Error");	
 }
 
 void Initialization()
@@ -265,21 +246,33 @@ void Initialization()
 	 DDRC = 0b00111111;
 	 PORTC = 0b00000000;
 	 
-	 DDRD = 0b11001110;
-	 PORTD = 0b00110011;
+	 DDRD = 0b10000000;
+	 PORTD = 0b01111111;
 	 
-	 ForwardOff;
-	 BackyardOff;
+	 PulseOff;
+	 
+	 Mode.mode = Waiting;
+	 Mode.active = false;
+	 Mode.count = 0;
 	 
 	 lcd_init(LCD_DISP_ON);
 	 lcd_clrscr();
 	 lcd_home();
 	 
+	 lcd_puts("0.0 Hz");
+	 lcd_clrline(9, 0);
+	 lcd_puts("Waiting");
+	 
+	 lcd_gotoxy(0, 1);
+	 lcd_puts("0.0 Hz");
+	 lcd_clrline(9, 1);
+	 lcd_puts("Stop");
+	 
 	 MovAvgAramid(0, true);
 	 MovAvgPolyamide(0, true);
 	 
-	 Timer0(true);
-	 Timer1(true);
+	 Timer0(false);
+	 Timer1(false);
 	 Timer2(true);
 	 sei();
  }
@@ -297,16 +290,165 @@ void Regulator()
 {
 	static float difference = 0;
 	
+	if (RightOn || LeftOn) return;
+	
 	difference = Measure.Fa - Measure.Fp;
 	
-	if (difference >= -1 && difference <= 1) 
+	if (difference >= -1 && difference <= 1) return;
+	
+	if (difference > 1)  return;
+}
+
+void Step(unsigned short direction)
+{
+	if (MainTimer.moving) return;
+	
+	switch (direction)
 	{
-		if (CurrentMotorDirection() == Stop) return;
-		MotorDirection(Stop);
+		case Right:
+			PulseOn;
+			_delay_ms(1);
+			PulseOff;
+			break;
+		case Left:
+			PulseOn;
+			_delay_ms(64);
+			PulseOff;
+			break;
+		default:
+			PulseOff;
+			break;	
+	}	 
+	
+	MainTimer.moving = true;
+}
+
+void Manual()
+{
+	static unsigned short key = Stop;
+	
+	if (!(RightOn | LeftOn)) 
+	{
+		if (key == Stop) return;
+		
+		lcd_clrline(9, 1);
+		lcd_puts("Stop");
+		key = Stop;
 		return;
 	}
 	
-	if (difference > 1) MotorDirection(Forward); else MotorDirection(Backyard);	
+	if (RightOn & LeftOn) 
+	{
+		if (key == Short) return;
+		
+		lcd_clrline(9, 1);
+		lcd_puts("Short");
+		key = Short;
+		return;
+	}
+	
+	if (RightOn) 
+	{ 
+		if (key == Right) 
+		{
+			Step(Right);
+			return;
+		}
+		
+		Step(Right);
+		lcd_clrline(9, 1);
+		lcd_puts("Right");
+		key = Right;
+		return; 
+	}
+	
+	if (LeftOn) 
+	{
+		if (key == Left)
+		{
+			Step(Left);
+			return;
+		}
+		
+		Step(Left);
+		lcd_clrline(9, 1);
+		lcd_puts("Left");
+		key = Left;
+		return;
+	}
+}
+
+void ModeControl()
+{
+	if (Active)
+	{
+		if (Mode.active) 
+		{
+			if (Mode.mode == Acceleration || Mode.mode == Deceleration)
+			{
+				if (Mode.count > 0 && Mode.mode == Acceleration) return;
+				
+				LedOn;
+				Mode.mode = Process;
+				Mode.count = 0;
+				Timer0(true);
+				Timer1(true);
+				lcd_clrline(9, 0);
+				lcd_puts("Process"); 
+				return;
+			}
+			
+			return;				
+		}
+		
+		Mode.active = true;
+		Mode.count = AccelDelay;
+		Mode.mode = Acceleration;
+		lcd_clrline(9, 0);
+		lcd_puts("Acceler");
+		return;
+	}
+	
+	if (Mode.active)
+	{
+		if (Mode.mode == Process)
+		{
+			Mode.count = DecelDelay;
+			Mode.mode = Deceleration;
+			lcd_clrline(9, 0);
+			lcd_puts("Deceler");
+			return;	
+		}
+		
+		if (Mode.mode == Deceleration || Mode.mode == Acceleration)
+		{
+			if (Mode.count > 0 && Mode.mode == Deceleration) return;
+			
+			LedOff;
+			PulseOff;
+			Mode.active = false;
+			Mode.mode = Waiting;
+			Mode.count = 0;
+			
+			lcd_clrscr();
+			lcd_home();
+			lcd_puts("0.0 Hz");
+			lcd_clrline(9, 0);
+			lcd_puts("Waiting");
+			
+			lcd_gotoxy(0, 1);
+			lcd_puts("0.0 Hz");
+			lcd_clrline(9, 1);
+			lcd_puts("Stop");
+			
+			MovAvgAramid(0, true);
+			MovAvgPolyamide(0, true);
+			
+			Timer0(false);
+			Timer1(false);
+			return;
+		}
+	}
 }
 
 int main(void)
@@ -315,18 +457,21 @@ int main(void)
 	
 	while(1)
 	{	
+		ModeControl();
+		Manual();
+		
 		if (MainTimer.ms160)
 		{
-			Calculation();
+			if (Mode.mode == Process) Calculation();
 			MainTimer.ms160 = 0;
 		}
 		
 		if (MainTimer.ms992)
 		{
-			LedInv;
-			Regulator();
 			DisplayPrint();
 			MainTimer.ms992 = 0;
+			if (Mode.count > 0) Mode.count--;
+			if (Mode.mode == Acceleration || Mode.mode == Deceleration) LedInv;
 		}
 	}
 }
