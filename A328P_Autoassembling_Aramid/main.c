@@ -286,19 +286,6 @@ void Calculation()
 	TCNT1 = 0;
 }
 
-void Regulator()
-{
-	static float difference = 0;
-	
-	if (RightOn || LeftOn) return;
-	
-	difference = Measure.Fa - Measure.Fp;
-	
-	if (difference >= -1 && difference <= 1) return;
-	
-	if (difference > 1)  return;
-}
-
 void Step(unsigned short direction)
 {
 	if (MainTimer.moving) return;
@@ -451,6 +438,19 @@ void ModeControl()
 	}
 }
 
+void Regulator()
+{
+	static float difference = 0;
+	
+	if (RightOn || LeftOn) return;
+	
+	difference = Measure.Fa - Measure.Fp;
+	
+	if (difference >= -1 && difference <= 1) return;
+	
+	if (difference > 1) Step(Left); else Step(Right);
+}
+
 int main(void)
 {
 	Initialization();
@@ -462,7 +462,11 @@ int main(void)
 		
 		if (MainTimer.ms160)
 		{
-			if (Mode.mode == Process) Calculation();
+			if (Mode.mode == Process) 
+			{
+				Calculation();
+				Regulator();
+			}
 			MainTimer.ms160 = 0;
 		}
 		
