@@ -563,7 +563,7 @@ int main(void)
 	Timer0(false);
 	Timer1(Counter);
 	Timer2(false);
-	USART(Init);
+	USART(Off);
 	Converter(Off);
 	sei();
 	
@@ -581,11 +581,6 @@ int main(void)
 			MainTimer.isr = false;
 		}
 		
-		if (Convert.done)
-		{
-			Convert.done = 0;
-		}
-		
 		if (MainTimer.ms200)
 		{
 			MainTimer.ms200 = 0;
@@ -593,9 +588,8 @@ int main(void)
 		
 		if (MainTimer.ms1000)
 		{
-			EnvRequest();
-			MainTimer.ms1000 = 0;
 			LedInv;
+			MainTimer.ms1000 = 0;
 		}
 	}
 }

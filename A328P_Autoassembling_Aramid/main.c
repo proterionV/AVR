@@ -294,12 +294,12 @@ void Step(unsigned short direction)
 	{
 		case Right:
 			PulseOn;
-			_delay_ms(1);
+			_delay_us(400);
 			PulseOff;
 			break;
 		case Left:
 			PulseOn;
-			_delay_ms(64);
+			_delay_us(7700);
 			PulseOff;
 			break;
 		default:
@@ -457,8 +457,8 @@ int main(void)
 	
 	while(1)
 	{	
-		ModeControl();
 		Manual();
+		ModeControl();
 		
 		if (MainTimer.ms160)
 		{
