@@ -22,14 +22,8 @@
 #define Left     (~PIND & (1<<3))
 #define Enter    (PIND  & (1<<4))
 
-#define BtnReset (Check(PINC, 6))
-
-#define Activity (!Check(PIND, 5))
-
-#define Phase    (Check(PORTD, 6))
-#define PhaseOn  High(PORTD, 6)
-#define PhaseOff Low(PORTD, 6)
-#define PhaseInv Inv(PORTD, 6)
+#define DDSOut	 (Check(PORTD, 7))
+#define DDSOutInv Inv(PORTD, 7)
 
 #define Init	 0
 #define On		 1
@@ -39,18 +33,14 @@
 #define RxOn	 5
 #define RxOff	 6
 
-#define StartSPI	Low(PORTB, 2)
-#define EndSPI		High(PORTB, 2)
-
-#define MovAvgSize	10
+#define MovAvgSize		10
+#define RMSArraySize	100
 
 #define RxBufferSize    100
 #define TxBufferSize	100
 
-#define NextLine    0x0A
 #define FillCell    0xFF
 #define Terminator  '$'
-#define Arrow		'>'
 #define Eraser		' '
 #define StringEnd	'\0'
 #define CR			'\r'
@@ -75,10 +65,27 @@ volatile struct
 	volatile unsigned int ms16, ms160, ms992;
 } MainTimer;
 
+struct
+{
+	unsigned short forward;
+	unsigned short backward;
+	unsigned short button;
+	bool addendumChanged, speedChanged;
+	float multiplier;
+	float addendumValues[4];
+	enum Addendums
+	{
+		tenths,
+		units,
+		dozens,
+		hundredths
+	} addendum;
+} Encoder;
+
 volatile struct
 {
 	signed int value;
-	float voltage, avg, kalman;
+	float voltage, avg, kalman, rms;
 	bool done;
 } Convert;
 
@@ -87,23 +94,32 @@ volatile struct
 	unsigned char byte;
 	bool byteReceived;
 } Rx;
+ 
+volatile struct
+{
+	float frequency;
+	unsigned long int accum, increment;
+} DDS;
+ 
+const unsigned long int ACCUM_MAXIMUM = 1000000000;
+const unsigned int		FREQUENCY_MAXIMUM = 7812;
 
-void Timer2(bool enable)
+void Timer0(bool enable)
 {
 	if (enable)
 	{
-		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);
-		TIMSK2 = (1 << TOIE2);
-		TCNT2 = 0;
+		TCCR0B = (1 << CS02)|(10 << CS01)|(1 << CS00);
+		TIMSK0 = (1 << TOIE0);
+		TCNT0 = 0;
 		return;
 	}
 	
-	TCCR2B = (0 << CS22)|(0 << CS21)|(0 << CS20);
-	TIMSK2 = (0 << TOIE2);
-	TCNT2 = 0;
+	TCCR0B = (0 << CS02)|(0 << CS01)|(0 << CS00);
+	TIMSK0 = (0 << TOIE0);
+	TCNT0 = 0;
 }
 
-ISR(TIMER2_OVF_vect)
+ISR(TIMER0_OVF_vect)
 {
 	MainTimer.ms16++;
 
@@ -115,7 +131,34 @@ ISR(TIMER2_OVF_vect)
 		MainTimer.ms16 = 0;
 	}
 	
-	TCNT2 = 5;
+	TCNT0 = 5;
+}
+
+void Timer2(bool enable)
+{
+	if (enable)
+	{
+		TCCR2B = (1<<CS22) | (1<<CS21) | (1<<CS20); // 1024 bit scaler
+		TIMSK2 = (1<<TOIE2);
+		return;
+	}
+	
+	TCCR2B = (0<<CS22) | (0<<CS21) | (0<<CS20);
+	TIMSK2 = (0<<TOIE2);
+	TCNT2 = 0;
+}
+
+ISR(TIMER2_OVF_vect)
+{
+	TCNT2 = 255;
+	
+	DDS.accum += DDS.increment;
+	
+	if (DDS.accum >= ACCUM_MAXIMUM)
+	{
+		DDSOutInv;
+		DDS.accum -= ACCUM_MAXIMUM;
+	}
 }
 
 void Converter(unsigned short option)
@@ -130,7 +173,7 @@ void Converter(unsigned short option)
 		break;
 		default:
 		ADCSRA = 0x8F;
-		ADMUX = 0x40;
+		ADMUX = 0x41;
 		ADCSRA |= (0<<ADSC);
 		break;
 	}
@@ -221,6 +264,27 @@ float Kalman(float value, bool reset)
 	return CurrentEstimate;
 }
 
+float RMS(float value, bool reset)
+{
+	static float values[RMSArraySize];
+	static unsigned short index = 0;
+	static float result;
+	
+	if (reset)
+	{
+		memset(values, 0, RMSArraySize);
+		result = 0;
+		index = 0;
+		return 0;
+	}
+	
+	result += (value*value) - values[index];
+	values[index] = value*value;
+	index = (index + 1) % RMSArraySize;
+	
+	return sqrt(result/RMSArraySize);
+}
+
 void TxChar(unsigned char c)
 {
 	while (!(UCSR0A & (1<<UDRE0)));
@@ -266,40 +330,80 @@ void EraseUnits(int x, int y, int offset, float count)
 
 void DisplayPrint()
 {
-	static char voltage[20], avg[20], kalman[20];
+	static char rms[20], addendum[20], speed[20];
 	
-	EraseUnits(0, 0, 0, Convert.voltage);
-	sprintf(voltage, "%.1f", Convert.voltage);
-	lcd_puts(voltage);
+	if (DDS.frequency > 0)
+	{
+		EraseUnits(0, 0, 0, Convert.rms);
+		sprintf(rms, "%.1f", Convert.rms);
+		lcd_puts(rms);
+	}
+	else
+	{
+		if (Convert.rms > 0)
+		{
+			Convert.rms = 0;
+			EraseUnits(0, 0, 0, Convert.rms);
+			sprintf(rms, "%.1f", Convert.rms);
+			lcd_puts(rms);	
+		}
+	}
 	
-	EraseUnits(0, 1, 0, Convert.avg);
-	sprintf(avg, "%.1f", Convert.avg);
-	lcd_puts(avg);
+	if (Encoder.addendumChanged)
+	{
+		sprintf(addendum, "%.1f", Encoder.addendumValues[Encoder.addendum]);
+		EraseUnits(10, 1, 0, Encoder.addendumValues[Encoder.addendum]);
+		lcd_gotoxy(10, 1);
+		lcd_puts(addendum);
+		Encoder.addendumChanged = false;
+	}
 	
-	EraseUnits(10, 0, 0, Convert.kalman);
-	sprintf(kalman, "%.1f", Convert.kalman);
-	lcd_puts(kalman);
+	if (Encoder.speedChanged)
+	{
+		sprintf(speed, "%.1f", DDS.frequency);
+		EraseUnits(0, 1, 2, DDS.frequency);
+		lcd_gotoxy(0, 1);
+		lcd_puts(speed);
+		Encoder.speedChanged = false;
+	}
 }
 
-void Initialization()
+void Initialization(const char* projectName)
  {
-	 DDRB = 0b00111111;
-	 PORTB = 0b00000111;
+	 DDRB = 0b00111100;
+	 PORTB = 0b00000011;
 	 
 	 DDRC = 0b00111100;
 	 PORTC = 0b00000000;
 	 
-	 DDRD = 0b11001110;
-	 PORTD = 0b00110011;
+	 DDRD = 0b11000010;
+	 PORTD = 0b00111111;
+	 
+	 Encoder.addendumValues[tenths] = 0.1;
+	 Encoder.addendumValues[units] = 1;
+	 Encoder.addendumValues[dozens] = 10;
+	 Encoder.addendumValues[hundredths] = 100;
+	 Encoder.addendum = hundredths;
+	 
+	 Encoder.addendumChanged = true;
+	 Encoder.speedChanged = true;
+	 
+	 Convert.rms = 1;
 	 
 	 lcd_init(LCD_DISP_ON);
+	 lcd_gotoxy(4, 0);
+	 lcd_puts(projectName);
+	 _delay_ms(2000);
 	 lcd_clrscr();
 	 lcd_home();
 	 
 	 MovAvg(0, true);
 	 Kalman(0, true);
+	 RMS(0, true);
 	 
-	 Timer2(true);
+	 USART(Init);
+	 USART(Off);
+	 Timer0(true);
 	 Converter(Init);
 	 sei();
  }
@@ -311,34 +415,101 @@ void Transmit(float value)
 	TxString(voltage);	
 }
 
+float GetAddendum(void)
+{
+	static unsigned int divider = 0;
+	divider = DDS.frequency < 11000 ? 10000 : 100000;
+	return (((ACCUM_MAXIMUM/divider)*DDS.frequency)/FREQUENCY_MAXIMUM)*divider;
+}
+
+void SetOptionDDS(short direction)
+{
+	if (direction > 0) DDS.frequency += DDS.frequency + Encoder.addendumValues[Encoder.addendum] <= FREQUENCY_MAXIMUM ? Encoder.addendumValues[Encoder.addendum] : 0;
+	if (direction < 0) DDS.frequency -= DDS.frequency - Encoder.addendumValues[Encoder.addendum] < 0 ? DDS.frequency : Encoder.addendumValues[Encoder.addendum];
+	DDS.increment = GetAddendum();
+	if (DDS.frequency < 0.1) { Timer2(false); Converter(Off); } else { Timer2(true); Converter(On); }
+	Encoder.speedChanged = true;
+}
+
+void EncoderHandler(void)
+{
+	if (Right) Encoder.forward = 0;
+	{
+		if (!Right) Encoder.forward++;
+		{
+			if (Encoder.forward == 1 && Left)
+			{
+				SetOptionDDS(1);
+				return;
+			}
+		}
+	}
+	
+	if (Left) Encoder.backward = 0;
+	{
+		if (!Left) Encoder.backward++;
+		{
+			if (Encoder.backward == 1 && Right)
+			{
+				SetOptionDDS(-1);
+				return;
+			}
+		}
+	}
+	
+	if (Enter) Encoder.button = 0;
+	{
+		if (!Enter) Encoder.button++;
+		{
+			if (Encoder.button == 1)
+			{
+				switch(Encoder.addendum)
+				{
+					case tenths:
+					Encoder.addendum = units;
+					break;
+					case units:
+					Encoder.addendum = dozens;
+					break;
+					case dozens:
+					Encoder.addendum = hundredths;
+					break;
+					default:
+					Encoder.addendum = tenths;
+					break;
+				}
+				Encoder.addendumChanged = true;
+			}
+		}
+	}
+}
+
 int main(void)
 {
-	Initialization();
-	Converter(On);
-	USART(Init);
-	USART(TxOn);
+	Initialization("Softness");
 	
 	while(1)
 	{	
+		EncoderHandler();
+		
 		if (Convert.done)
 		{
 			Convert.voltage = Convert.value*0.0048875855327468;
-			Convert.avg = MovAvg(Convert.voltage, false);
-			Convert.kalman = Kalman(Convert.voltage, false);
-			Transmit(Convert.voltage);
-			Converter(On);
+			Convert.rms = RMS(Convert.voltage, false);
 			Convert.done = false;
+			Converter(On);
 		}
 		
 		if (MainTimer.ms160)
 		{
-			DisplayPrint();
+			 
 			MainTimer.ms160 = 0;
 		}
 		
 		if (MainTimer.ms992)
 		{
 			LedInv;	
+			DisplayPrint();
 			MainTimer.ms992 = 0;
 		}
 	}

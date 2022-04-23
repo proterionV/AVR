@@ -94,11 +94,11 @@
 #define LCD_DATA2_PIN    4            /**< pin for 4bit data bit 2  */
 #define LCD_DATA3_PIN    5            /**< pin for 4bit data bit 3  */
 #define LCD_RS_PORT      LCD_CONTROL_PORT     /**< port for RS line         */
-#define LCD_RS_PIN       0            /**< pin  for RS line         */
+#define LCD_RS_PIN       2            /**< pin  for RS line         */
 #define LCD_RW_PORT      LCD_CONTROL_PORT     /**< port for RW line         */
-#define LCD_RW_PIN       1            /**< pin  for RW line         */
+#define LCD_RW_PIN       3            /**< pin  for RW line         */
 #define LCD_E_PORT       LCD_CONTROL_PORT     /**< port for Enable line     */
-#define LCD_E_PIN        2            /**< pin  for Enable line     */
+#define LCD_E_PIN        4            /**< pin  for Enable line     */
 
 #elif defined(__AVR_AT90S4414__) || defined(__AVR_AT90S8515__) || defined(__AVR_ATmega64__) || \
       defined(__AVR_ATmega8515__)|| defined(__AVR_ATmega103__) || defined(__AVR_ATmega128__) || \

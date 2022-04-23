@@ -149,6 +149,24 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 5;
 }
 
+void delay_ms(int ms)
+{
+	while (0 < ms)
+	{
+		_delay_ms(1);
+		--ms;
+	}
+}
+
+void delay_us(int us)
+{
+	while (0 < us)
+	{
+		_delay_us(1);
+		--us;
+	}
+}
+
 float MovAvgAramid(float value, bool reset)
 {
 	static unsigned short index = 0;
@@ -274,7 +292,7 @@ void Initialization()
 	 Timer0(false);
 	 Timer1(false);
 	 Timer2(true);
-	 sei();
+	 sei();	 
  }
 
 void Calculation()
@@ -296,10 +314,11 @@ void Step(unsigned short direction)
 			PulseOn;
 			_delay_us(400);
 			PulseOff;
+			_delay_ms(91);
 			break;
 		case Left:
 			PulseOn;
-			_delay_us(7700);
+			_delay_ms(91);
 			PulseOff;
 			break;
 		default:
@@ -459,7 +478,7 @@ int main(void)
 	{	
 		Manual();
 		ModeControl();
-		
+
 		if (MainTimer.ms160)
 		{
 			if (Mode.mode == Process) 
