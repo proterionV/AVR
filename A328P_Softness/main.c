@@ -166,16 +166,15 @@ void Converter(unsigned short option)
 	switch (option)
 	{
 		case Off:
-		ADCSRA |= (0<<ADSC);
-		break;
+			ADCSRA |= (0<<ADSC);
+			break;
 		case On:
-		ADCSRA |= (1<<ADSC);
-		break;
+			ADCSRA |= (1<<ADSC);
+			break;
 		default:
-		ADCSRA = 0x8F;
-		ADMUX = 0x41;
-		ADCSRA |= (0<<ADSC);
-		break;
+			ADCSRA = (1<<ADEN)|(0<<ADSC)|(0<<ADATE)|(0<<ADIF)|(1<<ADIE)|(1<<ADPS2)|(1<<ADPS1)|(0<<ADPS0);
+			ADMUX = 0x41;
+			break;
 	}
 }
 
@@ -344,7 +343,7 @@ void DisplayPrint()
 		{
 			Convert.rms = 0;
 			EraseUnits(0, 0, 0, Convert.rms);
-			sprintf(rms, "%.1f", Convert.rms);
+			sprintf(rms, "%.2f", Convert.rms);
 			lcd_puts(rms);	
 		}
 	}
@@ -402,7 +401,6 @@ void Initialization(const char* projectName)
 	 RMS(0, true);
 	 
 	 USART(Init);
-	 USART(Off);
 	 Timer0(true);
 	 Converter(Init);
 	 sei();
@@ -411,7 +409,7 @@ void Initialization(const char* projectName)
 void Transmit(float value)
 {
 	char voltage[20] = { 0 };
-	sprintf(voltage, "%.1f,", value);
+	sprintf(voltage, "%.2f,", value);
 	TxString(voltage);	
 }
 
@@ -426,8 +424,25 @@ void SetOptionDDS(short direction)
 {
 	if (direction > 0) DDS.frequency += DDS.frequency + Encoder.addendumValues[Encoder.addendum] <= FREQUENCY_MAXIMUM ? Encoder.addendumValues[Encoder.addendum] : 0;
 	if (direction < 0) DDS.frequency -= DDS.frequency - Encoder.addendumValues[Encoder.addendum] < 0 ? DDS.frequency : Encoder.addendumValues[Encoder.addendum];
+	
+	if (DDS.frequency < 0.1) 
+	{
+		Timer2(false); 
+		Converter(Off);
+		USART(Off);
+	} 
+	else
+	{ 
+		if (DDS.increment < 1) 
+		{
+			Timer2(true); 
+			Converter(On); 
+			USART(TxOn);
+		}
+	}
+	
 	DDS.increment = GetAddendum();
-	if (DDS.frequency < 0.1) { Timer2(false); Converter(Off); } else { Timer2(true); Converter(On); }
+	
 	Encoder.speedChanged = true;
 }
 
@@ -494,10 +509,11 @@ int main(void)
 		
 		if (Convert.done)
 		{
-			Convert.voltage = Convert.value*0.0048875855327468;
-			Convert.rms = RMS(Convert.voltage, false);
-			Convert.done = false;
+			Convert.voltage = Convert.value*0.0048875855327468;	
+			//Convert.rms = RMS(Convert.voltage, false);
+			Transmit(Convert.voltage);
 			Converter(On);
+			Convert.done = false;
 		}
 		
 		if (MainTimer.ms160)
@@ -508,7 +524,7 @@ int main(void)
 		
 		if (MainTimer.ms992)
 		{
-			LedInv;	
+			LedInv;
 			DisplayPrint();
 			MainTimer.ms992 = 0;
 		}
