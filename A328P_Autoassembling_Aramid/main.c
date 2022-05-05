@@ -44,7 +44,7 @@
 #define AccelDelay	10
 #define DecelDelay	5
 
-#define MovAvgSize	5
+#define MovAvgSize	30
 
 #include <xc.h>
 #include <avr/io.h>
@@ -248,11 +248,11 @@ void DisplayPrint()
 	if (Mode.mode == Waiting) return;
 	 
 	EraseUnits(0, 0, 3, Measure.Fa);
-	sprintf(frequencyAramid, "%.1f Hz", Measure.Fa);
+	sprintf(frequencyAramid, "%.2f", Measure.Fa < 0 ? 0 : Measure.Fa);
 	lcd_puts(frequencyAramid);
 	
 	EraseUnits(0, 1, 3, Measure.Fp);
-	sprintf(frequencyPolyamide, "%.1f Hz", Measure.Fp);
+	sprintf(frequencyPolyamide, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
 	lcd_puts(frequencyPolyamide);
 }
 
@@ -277,12 +277,12 @@ void Initialization()
 	 lcd_clrscr();
 	 lcd_home();
 	 
-	 lcd_puts("0.0 Hz");
+	 lcd_puts("0.0");
 	 lcd_clrline(9, 0);
 	 lcd_puts("Waiting");
 	 
 	 lcd_gotoxy(0, 1);
-	 lcd_puts("0.0 Hz");
+	 lcd_puts("0.0");
 	 lcd_clrline(9, 1);
 	 lcd_puts("Stop");
 	 
@@ -297,8 +297,8 @@ void Initialization()
 
 void Calculation()
 {
-	Measure.Fa = MovAvgAramid(((255.*Measure.ovf)+TCNT0)*6.25, false);	 //1.008064516129032 
-	Measure.Fp = MovAvgPolyamide(TCNT1*6.25, false);
+	Measure.Fa = MovAvgAramid(((255.*Measure.ovf)+TCNT0)*0.1260080645161290, false); // ((1000/992)*6.25)/50.f = 0.12600806451612903225806451612903
+	Measure.Fp = MovAvgPolyamide(TCNT1*0.1260080645161290, false); // 50 imp/rev
 	
 	TCNT0 = 0;
 	TCNT1 = 0;
@@ -438,12 +438,12 @@ void ModeControl()
 			
 			lcd_clrscr();
 			lcd_home();
-			lcd_puts("0.0 Hz");
+			lcd_puts("0.0");
 			lcd_clrline(9, 0);
 			lcd_puts("Waiting");
 			
 			lcd_gotoxy(0, 1);
-			lcd_puts("0.0 Hz");
+			lcd_puts("0.0");
 			lcd_clrline(9, 1);
 			lcd_puts("Stop");
 			
@@ -484,7 +484,7 @@ int main(void)
 			if (Mode.mode == Process) 
 			{
 				Calculation();
-				Regulator();
+				//Regulator();
 			}
 			MainTimer.ms160 = 0;
 		}
