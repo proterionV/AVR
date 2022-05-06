@@ -44,7 +44,7 @@
 #define AccelDelay	10
 #define DecelDelay	5
 
-#define MovAvgSize	30
+#define MovAvgSize	100
 
 #include <xc.h>
 #include <avr/io.h>
@@ -297,8 +297,15 @@ void Initialization()
 
 void Calculation()
 {
-	Measure.Fa = MovAvgAramid(((255.*Measure.ovf)+TCNT0)*0.1260080645161290, false); // ((1000/992)*6.25)/50.f = 0.12600806451612903225806451612903
-	Measure.Fp = MovAvgPolyamide(TCNT1*0.1260080645161290, false); // 50 imp/rev
+	// speed = (k / q) * L * t = X m/s
+	// k 1000 ms / 160 ms = 6.25 (measure during 160 ms) 
+	// q 50 imp/rev for both impellers
+	// La aramid roll d = 0.027 m, l = 0.08478 m
+	// Lp polyamide roll d =  m, l = 0.165 m
+	// t 60 - seconds
+																		   
+	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.63585, false); // (6.25/50.f * 0.08478 * 60 = 0.63585 
+	Measure.Fp = MovAvgPolyamide(TCNT1*1.17825, false); // 50 imp/rev // (6.25/50.f * 0.1571 * 60 = 1.17825 
 	
 	TCNT0 = 0;
 	TCNT1 = 0;
