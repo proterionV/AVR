@@ -44,7 +44,7 @@
 #define AccelDelay	10
 #define DecelDelay	5
 
-#define MovAvgSize	100
+#define MovAvgSize	110
 
 #include <xc.h>
 #include <avr/io.h>
@@ -297,15 +297,15 @@ void Initialization()
 
 void Calculation()
 {
-	// speed = (k / q) * L * t = X m/s
-	// k 1000 ms / 160 ms = 6.25 (measure during 160 ms) 
-	// q 50 imp/rev for both impellers
-	// La aramid roll d = 0.027 m, l = 0.08478 m
-	// Lp polyamide roll d =  m, l = 0.165 m
-	// t 60 - seconds
+	// F = (k / q) * L * t = X m/s
+	// k = 1000 ms / 160 ms = 6.25 (measure during 160 ms) 
+	// q = 50 imp/rev for both impellers
+	// La aramid roll D = 0.027 m, L = 0.0848 m
+	// Lp polyamide roll D = 0.0512 m, L = 0.161 m
+	// t = 60 seconds
 																		   
-	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.63585, false); // (6.25/50.f * 0.08478 * 60 = 0.63585 
-	Measure.Fp = MovAvgPolyamide(TCNT1*1.17825, false); // 50 imp/rev // (6.25/50.f * 0.1571 * 60 = 1.17825 
+	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.636, false); // (6.25/50.f * 0.0848 * 60 = 0.636 
+	Measure.Fp = MovAvgPolyamide(TCNT1*1.2075, false); // 50 imp/rev // (6.25/50.f * 0.161 * 60 = 1.2075 
 	
 	TCNT0 = 0;
 	TCNT1 = 0;
@@ -319,13 +319,13 @@ void Step(unsigned short direction)
 	{
 		case Right:
 			PulseOn;
-			_delay_us(400);
+			_delay_us(200);
 			PulseOff;
-			_delay_ms(91);
+			_delay_ms(70);
 			break;
 		case Left:
 			PulseOn;
-			_delay_ms(91);
+			_delay_ms(70);
 			PulseOff;
 			break;
 		default:
@@ -472,9 +472,9 @@ void Regulator()
 	
 	difference = Measure.Fa - Measure.Fp;
 	
-	if (difference >= -1 && difference <= 1) return;
+	if (difference >= -0.2 && difference <= 0.2) return;
 	
-	if (difference > 1) Step(Left); else Step(Right);
+	if (difference > 0.2) Step(Left); else Step(Right);
 }
 
 int main(void)
@@ -485,13 +485,13 @@ int main(void)
 	{	
 		Manual();
 		ModeControl();
+		if (Mode.mode == Process) Regulator();
 
 		if (MainTimer.ms160)
 		{
 			if (Mode.mode == Process) 
 			{
 				Calculation();
-				//Regulator();
 			}
 			MainTimer.ms160 = 0;
 		}

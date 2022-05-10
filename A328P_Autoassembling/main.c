@@ -78,7 +78,7 @@
 #include "lcd/lcd.h"
 
 const unsigned long int ACCUM_MAXIMUM = 1000000000; 
-const unsigned int		FREQUENCY_MAXIMUM = 7812;
+const unsigned int		FREQUENCY_MAXIMUM = 31250;
 
 volatile struct
 {
@@ -341,7 +341,7 @@ void Timer2(bool enable)
 {
 	if (enable)
 	{
-		TCCR2B = (1<<CS22) | (1<<CS21) | (1<<CS20); // 1024 bit scaler
+		TCCR2B = (1<<CS22) | (1<<CS21) | (0<<CS20); // 1024 bit scaler
 		TIMSK2 = (1<<TOIE2);
 		return;
 	}
@@ -912,7 +912,7 @@ void CheckRanges()
 
 int main(void)
 {
-	Initialization(Auto, Reporcial);
+	Initialization(Main, Reporcial);
 	lcd_init(LCD_DISP_ON);
 	Timer0(true);
 	Converter(Init);
