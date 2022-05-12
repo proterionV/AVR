@@ -1,118 +1,52 @@
-#ifndef LCD_H
-#define LCD_H
-/*************************************************************************
- Title	:   C include file for the HD44780U LCD library (lcd.c)
- Author:    Peter Fleury <pfleury@gmx.ch>  http://jump.to/fleury
- File:	    $Id: lcd.h,v 1.13.2.2 2006/01/30 19:51:33 peter Exp $
- Software:  AVR-GCC 3.3
- Hardware:  any AVR device, memory mapped mode only for AT90S4414/8515/Mega
-***************************************************************************/
+/*
+lcdpcf8574 lib 0x03
 
-/**
- @defgroup pfleury_lcd LCD library
- @code #include <lcd.h> @endcode
- 
- @brief Basic routines for interfacing a HD44780U-based text LCD display
+copyright (c) Davide Gironi, 2013
 
- Originally based on Volker Oth's LCD library,
- changed lcd_init(), added additional constants for lcd_command(), 
- added 4-bit I/O mode, improved and optimized code.
-       
- Library can be operated in memory mapped mode (LCD_IO_MODE=0) or in 
- 4-bit IO port mode (LCD_IO_MODE=1). 8-bit IO port mode not supported.
+Released under GPLv3.
+Please refer to LICENSE file for licensing information.
 
- Memory mapped mode compatible with Kanda STK200, but supports also 
- generation of R/W signal through A8 address line.
-       
- @author Peter Fleury pfleury@gmx.ch http://jump.to/fleury
- 
- @see The chapter <a href="http://homepage.sunrise.ch/mysunrise/peterfleury/avr-lcd44780.html" target="_blank">Interfacing a HD44780 Based LCD to an AVR</a>
-      on my home page.
-
+References:
+  + based on lcd library by Peter Fleury
+    http://jump.to/fleury
+  + CGRAM functions by Péter Papp
 */
 
-/*@{*/
 
-#if (__GNUC__ * 100 + __GNUC_MINOR__) < 303
-#error "This library requires AVR-GCC 3.3 or later, update to newer AVR-GCC compiler !"
-#endif
+#ifndef LCD_H
+#define LCD_H
 
 #include <inttypes.h>
 #include <avr/pgmspace.h>
 
-/** 
- *  @name  Definitions for MCU Clock Frequency
- *  Adapt the MCU clock frequency in Hz to your target. 
- */
-#define XTAL 8000000              /**< clock frequency in Hz, used to calculate delay timer */
+#define LCD_PCF8574_INIT 1 //init pcf8574
 
+#define LCD_PCF8574_DEVICEID 0 //device id, addr = pcf8574 base addr + LCD_PCF8574_DEVICEID
 
-/**
- * @name  Definition for LCD controller type
- * Use 0 for HD44780 controller, change to 1 for displays with KS0073 controller.
- */
-#define LCD_CONTROLLER_KS0073 0  /**< Use 0 for HD44780 controller, 1 for KS0073 controller */
 
 /** 
  *  @name  Definitions for Display Size 
  *  Change these definitions to adapt setting to your display
  */
-#define LCD_LINES           4     /**< number of visible lines of the display */
-#define LCD_DISP_LENGTH    20     /**< visibles characters per line of the display */
+#define LCD_LINES           2     /**< number of visible lines of the display */
+#define LCD_DISP_LENGTH    16     /**< visibles characters per line of the display */
 #define LCD_LINE_LENGTH  0x40     /**< internal line length of the display    */
 #define LCD_START_LINE1  0x00     /**< DDRAM address of first char of line 1 */
 #define LCD_START_LINE2  0x40     /**< DDRAM address of first char of line 2 */
 #define LCD_START_LINE3  0x14     /**< DDRAM address of first char of line 3 */
 #define LCD_START_LINE4  0x54     /**< DDRAM address of first char of line 4 */
-#define LCD_WRAP_LINES      0     /**< 0: no wrap, 1: wrap at end of visibile line */
+#define LCD_WRAP_LINES      1     /**< 0: no wrap, 1: wrap at end of visibile line */
 
 
-#define LCD_IO_MODE      1         /**< 0: memory mapped mode, 1: IO port mode */
-#if LCD_IO_MODE
-/**
- *  @name Definitions for 4-bit IO mode
- *  Change LCD_PORT if you want to use a different port for the LCD pins.
- *
- *  The four LCD data lines and the three control lines RS, RW, E can be on the 
- *  same port or on different ports. 
- *  Change LCD_RS_PORT, LCD_RW_PORT, LCD_E_PORT if you want the control lines on
- *  different ports. 
- *
- *  Normally the four data lines should be mapped to bit 0..3 on one port, but it
- *  is possible to connect these data lines in different order or even on different
- *  ports by adapting the LCD_DATAx_PORT and LCD_DATAx_PIN definitions.
- *  
- */
-#define LCD_CONTROL_PORT PORTB
-#define LCD_PORT         PORTC        /**< port for the LCD lines   */
-#define LCD_DATA0_PORT   LCD_PORT     /**< port for 4bit data bit 0 */
-#define LCD_DATA1_PORT   LCD_PORT     /**< port for 4bit data bit 1 */
-#define LCD_DATA2_PORT   LCD_PORT     /**< port for 4bit data bit 2 */
-#define LCD_DATA3_PORT   LCD_PORT     /**< port for 4bit data bit 3 */
-#define LCD_DATA0_PIN    2            /**< pin for 4bit data bit 0  */
-#define LCD_DATA1_PIN    3            /**< pin for 4bit data bit 1  */
-#define LCD_DATA2_PIN    4            /**< pin for 4bit data bit 2  */
-#define LCD_DATA3_PIN    5            /**< pin for 4bit data bit 3  */
-#define LCD_RS_PORT      LCD_CONTROL_PORT     /**< port for RS line         */
-#define LCD_RS_PIN       2            /**< pin  for RS line         */
-#define LCD_RW_PORT      LCD_CONTROL_PORT     /**< port for RW line         */
-#define LCD_RW_PIN       3            /**< pin  for RW line         */
-#define LCD_E_PORT       LCD_CONTROL_PORT     /**< port for Enable line     */
-#define LCD_E_PIN        4            /**< pin  for Enable line     */
 
-#elif defined(__AVR_AT90S4414__) || defined(__AVR_AT90S8515__) || defined(__AVR_ATmega64__) || \
-      defined(__AVR_ATmega8515__)|| defined(__AVR_ATmega103__) || defined(__AVR_ATmega128__) || \
-      defined(__AVR_ATmega161__) || defined(__AVR_ATmega162__)
-/*
- *  memory mapped mode is only supported when the device has an external data memory interface
- */
-#define LCD_IO_DATA      0xC000    /* A15=E=1, A14=RS=1                 */
-#define LCD_IO_FUNCTION  0x8000    /* A15=E=1, A14=RS=0                 */
-#define LCD_IO_READ      0x0100    /* A8 =R/W=1 (R/W: 1=Read, 0=Write   */
-#else
-#error "external data memory interface not available for this device, use 4-bit IO port mode"
-
-#endif
+#define LCD_DATA0_PIN    4            /**< pin for 4bit data bit 0  */
+#define LCD_DATA1_PIN    5            /**< pin for 4bit data bit 1  */
+#define LCD_DATA2_PIN    6            /**< pin for 4bit data bit 2  */
+#define LCD_DATA3_PIN    7            /**< pin for 4bit data bit 3  */
+#define LCD_RS_PIN       0            /**< pin  for RS line         */
+#define LCD_RW_PIN       1            /**< pin  for RW line         */
+#define LCD_E_PIN        2            /**< pin  for Enable line     */
+#define LCD_LED_PIN      3            /**< pin  for Led             */
 
 
 /**
@@ -203,6 +137,7 @@ extern void lcd_clrscr(void);
 */
 extern void lcd_home(void);
 
+extern void lcd_clrline(uint8_t x, uint8_t y);
 
 /**
  @brief    Set cursor to specified position
@@ -212,6 +147,14 @@ extern void lcd_home(void);
  @return   none
 */
 extern void lcd_gotoxy(uint8_t x, uint8_t y);
+
+
+/**
+ @brief    Set illumination pin
+ @param    void
+ @return   none
+*/
+extern void lcd_led(uint8_t onoff);
 
 
 /**
@@ -256,7 +199,21 @@ extern void lcd_command(uint8_t cmd);
 */
 extern void lcd_data(uint8_t data);
 
-extern void lcd_clrline(uint8_t x, uint8_t y);
+/**
+@brief Clear CGRAM
+@param void
+@return none
+*/
+extern void lcd_clear_CGRAM (void);
+
+/**
+@brief Create custom character in CGRAM
+@param charnum: Character position in CGRAM. You can define maximum 8 chars.
+@param values[]: Custom character descriptor pointer.
+@return 0 - The custom character successfully created
+@return 1 - If the charnum greater than 7. You can define maximum 8 chars.
+*/
+extern uint8_t lcd_create_custom_char (uint8_t charnum, const uint8_t * values);
 
 /**
  @brief macros for automatically storing string constant in program memory

@@ -65,7 +65,7 @@ const unsigned int	    FREQUENCY_MAXIMUM = 31250; // timer2 divider 256
 struct
 {
 	unsigned int ms40, ms200, ms1000;
-	unsigned int ms16, ms992;
+	unsigned int ms16, ms992, sec;
 	bool isr;
 } MainTimer;
 
@@ -306,12 +306,12 @@ void EraseUnits(int x, int y, int offset, float count)
 
 void DisplayPrint()
 {
-	static char frequency[20];
+	static char seconds[20];
 	
-	EraseUnits(0, 0, 0, DDS.setting);
-	sprintf(frequency, "F%.1f$", DDS.setting);
+	EraseUnits(0, 0, 0, MainTimer.sec);
+	sprintf(seconds, "%d", MainTimer.sec);
 	lcd_gotoxy(0, 0);
-	lcd_puts(frequency);
+	lcd_puts(seconds);
 }
 
 void Converter(unsigned short option)
@@ -560,6 +560,11 @@ int main(void)
 	DDRD = 0b11000010;
 	PORTD = 0b00000011;
 	
+	lcd_init(LCD_DISP_ON);
+	lcd_led(false);
+	lcd_clrscr();
+	lcd_home();
+	
 	Timer0(false);
 	Timer1(Counter);
 	Timer2(false);
@@ -589,6 +594,9 @@ int main(void)
 		if (MainTimer.ms1000)
 		{
 			LedInv;
+			MainTimer.sec++;
+			DisplayPrint();
+			if (MainTimer.sec >= 59) MainTimer.sec = 0;
 			MainTimer.ms1000 = 0;
 		}
 	}

@@ -44,7 +44,7 @@
 #define AccelDelay	10
 #define DecelDelay	5
 
-#define MovAvgSize	110
+#define MovAvgSize	100
 
 #include <xc.h>
 #include <avr/io.h>
@@ -300,12 +300,17 @@ void Calculation()
 	// F = (k / q) * L * t = X m/s
 	// k = 1000 ms / 160 ms = 6.25 (measure during 160 ms) 
 	// q = 50 imp/rev for both impellers
-	// La aramid roll D = 0.027 m, L = 0.0848 m
-	// Lp polyamide roll D = 0.0512 m, L = 0.161 m
+	// La aramid roll D = 0.027 m, L = 0.0848 m (measured)
+	// Lp polyamide roll D = 0.0512 m, L = 0.161 m (calculated)	
 	// t = 60 seconds
+	// in the same F and original sizes asm = -20
+	// Lp experimantal v1 = 0.1570 // 1.1775 // asm = +4
+	// Lp experimental v3 = 0.1572 // 1.1790 // asm =  ?
+	// Lp experimental v3 = 0.1575 // 1,1812 // asm = -2
+	// Lp experimantal v2 = 0.1580 // 1.1850 // asm = -6
 																		   
 	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.636, false); // (6.25/50.f * 0.0848 * 60 = 0.636 
-	Measure.Fp = MovAvgPolyamide(TCNT1*1.2075, false); // 50 imp/rev // (6.25/50.f * 0.161 * 60 = 1.2075 
+	Measure.Fp = MovAvgPolyamide(TCNT1*1.1790, false); // 50 imp/rev // (6.25/50.f * 0.161 * 60 = 1.2075 
 	
 	TCNT0 = 0;
 	TCNT1 = 0;
@@ -472,9 +477,9 @@ void Regulator()
 	
 	difference = Measure.Fa - Measure.Fp;
 	
-	if (difference >= -0.2 && difference <= 0.2) return;
+	if (difference >= -0.15 && difference <= 0.15) return;
 	
-	if (difference > 0.2) Step(Left); else Step(Right);
+	if (difference > 0.15) Step(Left); else Step(Right);
 }
 
 int main(void)
@@ -483,7 +488,7 @@ int main(void)
 	
 	while(1)
 	{	
-		Manual();
+	 	//Manual();
 		ModeControl();
 		if (Mode.mode == Process) Regulator();
 

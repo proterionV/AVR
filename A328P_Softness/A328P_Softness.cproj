@@ -30,15 +30,15 @@
     <EraseKey />
     <AsfFrameworkConfig>
       <framework-data xmlns="">
-  <options />
-  <configurations />
-  <files />
-  <documentation help="" />
-  <offline-documentation help="" />
-  <dependencies>
-    <content-extension eid="atmel.asf" uuidref="Atmel.ASF" version="3.49.1" />
-  </dependencies>
-</framework-data>
+        <options />
+        <configurations />
+        <files />
+        <documentation help="" />
+        <offline-documentation help="" />
+        <dependencies>
+          <content-extension eid="atmel.asf" uuidref="Atmel.ASF" version="3.49.1" />
+        </dependencies>
+      </framework-data>
     </AsfFrameworkConfig>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)' == 'Release' ">
@@ -97,10 +97,22 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="lcd\lcd.c">
+    <Compile Include="lcd\i2chw\i2cmaster.h">
       <SubType>compile</SubType>
     </Compile>
-    <Compile Include="lcd\lcd.h">
+    <Compile Include="lcd\i2chw\twimaster.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="lcd\lcdpcf8574\lcdpcf8574.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="lcd\lcdpcf8574\lcdpcf8574.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="lcd\pcf8574\pcf8574.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="lcd\pcf8574\pcf8574.h">
       <SubType>compile</SubType>
     </Compile>
     <Compile Include="main.c">
@@ -109,6 +121,9 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="lcd" />
+    <Folder Include="lcd\i2chw" />
+    <Folder Include="lcd\lcdpcf8574" />
+    <Folder Include="lcd\pcf8574" />
   </ItemGroup>
   <Import Project="$(AVRSTUDIO_EXE_PATH)\\Vs\\Compiler.targets" />
 </Project>

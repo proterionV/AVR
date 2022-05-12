@@ -18,28 +18,14 @@
 #define LedOff  Low(PORTB, 5)
 #define LedInv  Inv(PORTB, 5)
 
-#define Right    (~PIND & (1<<2))
-#define Left     (~PIND & (1<<3))
-#define Enter    (PIND  & (1<<4))
-
 #define DDSOut	 (Check(PORTD, 7))
 #define DDSOutInv Inv(PORTD, 7)
 
-#define Active	(!Check(PIND, 5))
+#define Button	(PIND  & (1<<2))
 
 #define Init	 0
 #define On		 1
 #define Off		 2
-#define TxOn	 3
-#define TxOff	 4
-#define RxOn	 5
-#define RxOff	 6
-
-#define MovAvgSize		10
-#define RMSArraySize	100
-
-#define RxBufferSize    100
-#define TxBufferSize	100
 
 #define FillCell    0xFF
 #define Terminator  '$'
@@ -48,10 +34,10 @@
 #define CR			'\r'
 #define LF			'\n'
 
-#define Acceleration	1
-#define Deceleration	2
-#define Waiting			3
-#define Process			4
+#define Waiting		1
+#define Record		2
+#define Comparsion	3
+#define Finished	4
 
 #include <xc.h>
 #include <avr/io.h>
@@ -65,29 +51,12 @@
 #include <math.h>
 #include <stdbool.h>
 #include <util/delay.h>
-#include "lcd/lcd.h"
+#include "lcd/lcdpcf8574/lcdpcf8574.h"
 
 volatile struct
 {
-	volatile unsigned int ms16, ms160, ms992, sec, min;
+	volatile unsigned int ms200, ms1000, sec;
 } MainTimer;
-
-struct
-{
-	unsigned short forward;
-	unsigned short backward;
-	unsigned short button;
-	bool addendumChanged;
-	float multiplier;
-	float addendumValues[4];
-	enum Addendums
-	{
-		tenths,
-		units,
-		dozens,
-		hundredths
-	} addendum;
-} Encoder;
 
 volatile struct
 {
@@ -98,46 +67,53 @@ volatile struct
  
 volatile struct
 {
-	float setting, frequency;
+	float frequency;
 	unsigned long int accum, increment;
-	bool settingChanged, frequencyChanged;
 } DDS;
  
 volatile struct
 {
-	unsigned short mode;
-	bool active, action;
+	unsigned short mode, btn;
+	bool active, action, changed;
 } Mode;
+
+volatile struct 
+{
+	float ungrinded, grinded;
+	float difference;
+} Measure;
 
 const unsigned long int ACCUM_MAXIMUM = 1000000000;
 const unsigned int		FREQUENCY_MAXIMUM = 7812;
+const unsigned int		FREQUENCY = 2000;
 
-void Timer0(bool enable)
+void Timer1(unsigned short mode)
 {
-	if (enable)
+	switch(mode)
 	{
-		TCCR0B = (1 << CS02)|(10 << CS01)|(1 << CS00);
-		TIMSK0 = (1 << TOIE0);
-		TCNT0 = 0;
-		return;
+		case On:
+			TCCR1B = (1 << CS12)|(0 << CS11)|(1 << CS10);
+			TIMSK1 = (1 << TOIE1);
+			TCNT1 = 62411;
+			break;
+		default:
+			TCCR1B = (0 << CS12)|(0 << CS11)|(0 << CS10);
+			TIMSK1 = (0 << TOIE1);
+			TCNT1 = 62411;
+			break;
 	}
-	
-	TCCR0B = (0 << CS02)|(0 << CS01)|(0 << CS00);
-	TIMSK0 = (0 << TOIE0);
-	TCNT0 = 0;
 }
 
-ISR(TIMER0_OVF_vect)
+ISR(TIMER1_OVF_vect)
 {
-	MainTimer.ms16++;
-	
-	if (MainTimer.ms16 >= 62)
+	if (MainTimer.ms200 >= 5)
 	{
-		MainTimer.ms992++;
-		MainTimer.ms16 = 0;
+		MainTimer.ms1000++;
+		MainTimer.ms200 = 0;
 	}
 	
-	TCNT0 = 5;
+	MainTimer.ms200++;
+	TCNT1 = 62411;
 }
 
 void Timer2(bool enable)
@@ -191,52 +167,6 @@ ISR(ADC_vect)
 	Convert.done = true;
 }
 
-void USART(unsigned short option)
-{
-	switch (option)
-	{
-		case TxOn:
-			UCSR0B |= (1 << TXEN0);
-			break;
-		case TxOff:
-			UCSR0B |= (0 << TXEN0);
-			break;
-		case RxOn:
-			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
-			break;
-		case RxOff:
-			UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-			break;
-		case On:
-			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
-			break;
-		case Off:
-			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-			break;
-		default:
-			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-			UBRR0  =  3;
-			break;
-	}
-}
-
-ISR(USART_RX_vect)
-{
-
-}
-
-void TxChar(unsigned char c)
-{
-	while (!(UCSR0A & (1<<UDRE0)));
-	UDR0 = c;
-}
-
-void TxString(const char* s)
-{
-	for (int i=0; s[i]; i++) TxChar(s[i]);
-}
-
 void EraseUnits(int x, int y, int offset, float count)
 {
 	char eraser = 32;
@@ -271,51 +201,52 @@ void EraseUnits(int x, int y, int offset, float count)
 
 void DisplayPrint()
 {
-	static char voltage[20], addendum[20], setting[20], frequency[20];
+	static char ungrinded[20], grinded[20], difference[20]; 
 	
-	if (DDS.frequency > 0)
+	EraseUnits(0, 0, 0, Measure.ungrinded);
+	sprintf(ungrinded, "%.2f", Measure.ungrinded);
+	lcd_gotoxy(0, 0);
+	lcd_puts(ungrinded);
+	
+	EraseUnits(0, 1, 0, Measure.grinded);
+	sprintf(grinded, "%.2f", Measure.grinded);
+	lcd_gotoxy(0, 1);
+	lcd_puts(grinded);
+	
+	EraseUnits(8, 0, 1, Measure.difference);
+	sprintf(difference, "%.2f", Measure.difference);
+	lcd_gotoxy(8, 0);
+	lcd_puts(difference);
+	lcd_putc('%');
+	
+	if (!Mode.changed) return;
+	
+	lcd_clrline(8, 1);
+	
+	switch(Mode.mode)
 	{
-		EraseUnits(0, 0, 2, Convert.voltage);
-		sprintf(voltage, "%.2f", Convert.voltage);
-		lcd_puts(voltage);
-	}
-	else
-	{
-		if (Convert.voltage > 0)
-		{
-			Convert.voltage = 0;
-			EraseUnits(0, 0, 2, Convert.voltage);
-			sprintf(voltage, "%.2f", Convert.voltage);
-			lcd_puts(voltage);	
-		}
+		case Waiting:
+			lcd_puts("Waiting");
+			break;
+		case Record:
+			lcd_puts("Record");
+			break;
+		case Comparsion:
+			lcd_puts("Comparsion");
+			break;
+		default:
+			lcd_puts("Finished");
+			break;	
 	}
 	
-	if (DDS.frequencyChanged)
-	{
-		sprintf(frequency, "%.1f", DDS.frequency);
-		EraseUnits(0, 1, 2, DDS.frequency);
-		lcd_gotoxy(0, 1);
-		lcd_puts(frequency);
-		DDS.frequencyChanged = false;
-	}
-	
-	if (DDS.settingChanged)
-	{
-		sprintf(setting, "%.1f", DDS.setting);
-		EraseUnits(10, 0, 0, DDS.setting);
-		lcd_gotoxy(10, 0);
-		lcd_puts(setting);
-		DDS.settingChanged = false;
-	}
-	
-	if (Encoder.addendumChanged)
-	{
-		sprintf(addendum, "%.1f", Encoder.addendumValues[Encoder.addendum]);
-		EraseUnits(10, 1, 0, Encoder.addendumValues[Encoder.addendum]);
-		lcd_gotoxy(10, 1);
-		lcd_puts(addendum);
-		Encoder.addendumChanged = false;
-	}
+	Mode.changed = false;
+}
+
+float GetAddendum(void)
+{
+	static unsigned int divider = 0;
+	divider = DDS.frequency < 11000 ? 10000 : 100000;
+	return (((ACCUM_MAXIMUM/divider)*DDS.frequency)/FREQUENCY_MAXIMUM)*divider;
 }
 
 void Initialization(const char* projectName)
@@ -329,170 +260,64 @@ void Initialization(const char* projectName)
 	 DDRD = 0b11000010;
 	 PORTD = 0b00111111;
 	 
-	 Encoder.addendumValues[tenths] = 0.1;
-	 Encoder.addendumValues[units] = 1;
-	 Encoder.addendumValues[dozens] = 10;
-	 Encoder.addendumValues[hundredths] = 100;
-	 Encoder.addendum = hundredths;
-	 
-	 Encoder.addendumChanged = true;
-	 DDS.settingChanged = true;
-	 DDS.frequencyChanged = true;
-	 DDS.setting = eeprom_read_float((float*)1);
+	 DDS.frequency = FREQUENCY;
+	 DDS.increment = GetAddendum();
 	 
 	 Mode.mode = Waiting;
-	 
+	 Mode.changed = true;
+
 	 MainTimer.sec = 0;
 	 
 	 lcd_init(LCD_DISP_ON);
+	 lcd_led(false);
 	 lcd_gotoxy(4, 0);
 	 lcd_puts(projectName);
 	 _delay_ms(2000);
 	 lcd_clrscr();
 	 lcd_home();
 	 
-	 lcd_gotoxy(0, 0);
-	 lcd_puts("0.0");
-	 
-	 USART(Init);
-	 Timer0(true);
+	 Timer1(true);
 	 Timer2(false);
 	 Converter(Init);
 	 sei();
  }
 
-void Transmit(float value)
-{
-	char voltage[20] = { 0 };
-	sprintf(voltage, "%.2f,", value);
-	TxString(voltage);	
-}
-
-float GetAddendum(void)
-{
-	static unsigned int divider = 0;
-	divider = DDS.frequency < 11000 ? 10000 : 100000;
-	return (((ACCUM_MAXIMUM/divider)*DDS.frequency)/FREQUENCY_MAXIMUM)*divider;
-}
-
-void SetSetting(short direction)
-{
-	if (Mode.mode != Waiting) return;
-	
-	if (direction > 0) DDS.setting += DDS.setting + Encoder.addendumValues[Encoder.addendum] <= FREQUENCY_MAXIMUM ? Encoder.addendumValues[Encoder.addendum] : 0;
-	if (direction < 0) DDS.setting -= DDS.setting - Encoder.addendumValues[Encoder.addendum] < 0 ? DDS.setting : Encoder.addendumValues[Encoder.addendum];
-	eeprom_update_float((float*)1, DDS.setting);
-	DDS.settingChanged = true;
-}
-
-void SetFrequency(short direction)
-{
-	static short addendum = 1;
-	if (direction > 0) DDS.frequency += DDS.frequency + addendum <= FREQUENCY_MAXIMUM ? addendum : 0;
-	if (direction < 0) DDS.frequency -= DDS.frequency - addendum < 0 ? DDS.frequency : addendum;
-	DDS.increment = GetAddendum();
-	DDS.frequencyChanged = true;
-}
-
-void EncoderHandler(void)
-{
-	if (Right) Encoder.forward = 0;
-	{
-		if (!Right) Encoder.forward++;
-		{
-			if (Encoder.forward == 1 && Left)
-			{
-				SetSetting(1);
-				return;
-			}
-		}
-	}
-	
-	if (Left) Encoder.backward = 0;
-	{
-		if (!Left) Encoder.backward++;
-		{
-			if (Encoder.backward == 1 && Right)
-			{
-				SetSetting(-1);
-				return;
-			}
-		}
-	}
-	
-	if (Enter) Encoder.button = 0;
-	{
-		if (!Enter) Encoder.button++;
-		{
-			if (Encoder.button == 1)
-			{
-				switch(Encoder.addendum)
-				{
-					case tenths:
-					Encoder.addendum = units;
-					break;
-					case units:
-					Encoder.addendum = dozens;
-					break;
-					case dozens:
-					Encoder.addendum = hundredths;
-					break;
-					default:
-					Encoder.addendum = tenths;
-					break;
-				}
-				Encoder.addendumChanged = true;
-			}
-		}
-	}
-}
-
 void ModeControl()
 {
-	if (Active && MainTimer.sec < 60)
+	if (Button) Mode.btn = 0;
 	{
-		if (DDS.setting < 1) return;
-		
-		if (Mode.active)
+		if (!Button) Mode.btn++;
 		{
-			if (Mode.mode == Acceleration && DDS.frequency == DDS.setting)
-			{	
-				LedOn;
-				Mode.mode = Process;
-				Converter(On);
-				USART(TxOn);
-				return;
+			if (Mode.btn == 1)
+			{
+				switch(Mode.mode)
+				{
+					case Waiting:
+						Mode.mode = Record;
+						Timer2(true);
+						break;
+					case Record:
+						//Mode.mode = Comparsion;
+						Mode.mode = Waiting;
+						Timer2(false);
+						break;
+					case Comparsion:
+						Mode.mode = Finished;
+						break;
+					default:
+						Mode.mode = Finished;
+						break;
+				}
+				
+				Mode.changed = true;
 			}
-			
-			return;
 		}
-		
-		Mode.active = true;
-		Mode.action = false;
-		Mode.mode = Acceleration;
-		Timer2(true);
-		return;
 	}
-	
-	if (Mode.mode == Process)
-	{
-		Mode.mode = Deceleration;
-		Converter(Off);
-		USART(Off);
-		return;
-	}
-	
-	if (Mode.mode == Deceleration && DDS.frequency < 1)
-	{
-		LedOff;
-		Mode.active = false;
-		Mode.mode = Waiting;
-		Timer2(false);
-		if (!Active) MainTimer.sec = 0;
-		return;
-	}
-	
-	if (!Active && MainTimer.sec > 0) MainTimer.sec = 0;
+}
+
+void Calculation()
+{
+	Convert.voltage = Convert.value*0.0048875855327468;
 }
 
 int main(void)
@@ -501,26 +326,22 @@ int main(void)
 	
 	while(1)
 	{	
-		EncoderHandler();
 		ModeControl();
-		
-		if (Mode.mode == Acceleration) SetFrequency(1);
-		if (Mode.mode == Deceleration) SetFrequency(-1);
 		
 		if (Convert.done)
 		{
-			Convert.voltage = Convert.value*0.0048875855327468;
-			Transmit(Convert.voltage);
+			Calculation();
 			Converter(On);
 			Convert.done = false;
 		}
 		
-		if (MainTimer.ms992)
+		if (MainTimer.ms1000)
 		{
-			if (Mode.mode == Process && MainTimer.sec < 60) MainTimer.sec++;
-			if (Mode.mode == Waiting) LedInv;
 			DisplayPrint();
-			MainTimer.ms992 = 0;
+			if (Mode.mode == Waiting) LedInv;
+			if (MainTimer.sec > 59) MainTimer.sec = 0;
+			MainTimer.sec++;
+			MainTimer.ms1000 = 0;
 		}
 	}
 }
