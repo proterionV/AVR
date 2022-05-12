@@ -38,6 +38,7 @@
 #define Record		2
 #define Comparsion	3
 #define Finished	4
+#define Pause		5
 
 #include <xc.h>
 #include <avr/io.h>
@@ -86,6 +87,7 @@ volatile struct
 const unsigned long int ACCUM_MAXIMUM = 1000000000;
 const unsigned int		FREQUENCY_MAXIMUM = 7812;
 const unsigned int		FREQUENCY = 2000;
+const unsigned int		PERIOD = 30;
 
 void Timer1(unsigned short mode)
 {
@@ -155,7 +157,7 @@ void Converter(unsigned short option)
 			break;
 		default:
 			ADCSRA = (1<<ADEN)|(0<<ADSC)|(0<<ADATE)|(0<<ADIF)|(1<<ADIE)|(1<<ADPS2)|(1<<ADPS1)|(0<<ADPS0);
-			ADMUX = 0x41;
+			ADMUX = 0x40;
 			break;
 	}
 }
@@ -221,7 +223,7 @@ void DisplayPrint()
 	
 	if (!Mode.changed) return;
 	
-	lcd_clrline(8, 1);
+	lcd_clrline(6, 1);
 	
 	switch(Mode.mode)
 	{
@@ -233,6 +235,9 @@ void DisplayPrint()
 			break;
 		case Comparsion:
 			lcd_puts("Comparsion");
+			break;
+		case Pause:
+			lcd_puts("Pause");
 			break;
 		default:
 			lcd_puts("Finished");
@@ -284,6 +289,15 @@ void Initialization(const char* projectName)
 
 void ModeControl()
 {
+	if (Mode.active && MainTimer.sec < 1)
+	{
+		Timer2(false);
+		Mode.active = false;
+		if (Mode.mode == Record) Mode.mode = Waiting;
+		if (Mode.mode == Comparsion) Mode.mode = Finished;
+		Mode.changed = true;
+	}
+	
 	if (Button) Mode.btn = 0;
 	{
 		if (!Button) Mode.btn++;
@@ -293,19 +307,32 @@ void ModeControl()
 				switch(Mode.mode)
 				{
 					case Waiting:
-						Mode.mode = Record;
+						if (!Measure.ungrinded) Mode.mode = Record;
+						else Mode.mode = Comparsion;
+						Mode.active = true;
 						Timer2(true);
+						Converter(On);
+						MainTimer.sec = PERIOD;
 						break;
 					case Record:
-						//Mode.mode = Comparsion;
-						Mode.mode = Waiting;
-						Timer2(false);
-						break;
 					case Comparsion:
-						Mode.mode = Finished;
+						Timer2(false);
+						Mode.mode = Pause;
+						Mode.active = false;
+						break;
+					case Pause:
+						Timer2(true);
+						Mode.active = true;
+						if (Measure.grinded > 0) Mode.mode = Comparsion;
+						else Mode.mode = Record;
 						break;
 					default:
-						Mode.mode = Finished;
+						Mode.mode = Waiting;
+						Timer2(false);
+						Measure.ungrinded = 0;
+						Measure.grinded = 0;
+						Measure.difference = 0;
+						MainTimer.sec = 0;
 						break;
 				}
 				
@@ -317,7 +344,16 @@ void ModeControl()
 
 void Calculation()
 {
-	Convert.voltage = Convert.value*0.0048875855327468;
+	Convert.voltage = Convert.value*0.0048828125;
+	
+	if (Mode.mode == Record)
+	{
+		Measure.ungrinded = Convert.voltage;
+		return;
+	}
+	
+	Measure.grinded = Convert.voltage;
+	Measure.difference = (fabs((Measure.grinded / Measure.ungrinded) - 1))*100; 
 }
 
 int main(void)
@@ -330,8 +366,12 @@ int main(void)
 		
 		if (Convert.done)
 		{
-			Calculation();
-			Converter(On);
+			if (Mode.mode == Record || Mode.mode == Comparsion) 
+			{
+				Calculation();
+				Converter(On);
+			}
+			
 			Convert.done = false;
 		}
 		
@@ -339,8 +379,7 @@ int main(void)
 		{
 			DisplayPrint();
 			if (Mode.mode == Waiting) LedInv;
-			if (MainTimer.sec > 59) MainTimer.sec = 0;
-			MainTimer.sec++;
+			if (MainTimer.sec > 0 && (Mode.mode == Record || Mode.mode == Comparsion)) MainTimer.sec--;
 			MainTimer.ms1000 = 0;
 		}
 	}
