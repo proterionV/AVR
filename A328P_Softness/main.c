@@ -358,7 +358,7 @@ void Calculation()
 
 int main(void)
 {
-	Initialization("Softness");
+	Initialization("Roughness");
 	
 	while(1)
 	{	

@@ -305,7 +305,7 @@ void Calculation()
 	// t = 60 seconds
 	// in the same F and original sizes asm = -20
 	// Lp experimantal v1 = 0.1570 // 1.1775 // asm = +4
-	// Lp experimental v3 = 0.1572 // 1.1790 // asm =  ?
+	// Lp experimental v4 = 0.1572 // 1.1790 // asm =  ?
 	// Lp experimental v3 = 0.1575 // 1,1812 // asm = -2
 	// Lp experimantal v2 = 0.1580 // 1.1850 // asm = -6
 																		   
@@ -488,7 +488,7 @@ int main(void)
 	
 	while(1)
 	{	
-	 	//Manual();
+	 	Manual();
 		ModeControl();
 		if (Mode.mode == Process) Regulator();
 
