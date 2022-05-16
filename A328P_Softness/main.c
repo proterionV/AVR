@@ -323,7 +323,7 @@ void Calculation(bool reset)
 	
 	Convert.voltage = Convert.value*0.004814453125;
 	current = fabs(Convert.voltage - 2.5);
-	//current = current == 2.5 ? 0 : current; 
+	current = current == 2.5 ? 0 : current; 
 	sqr = (current + previous)/2;
 	sum += sqr;
 	previous = current;
@@ -333,7 +333,9 @@ void Calculation(bool reset)
 	
 	if (Measure.ungrinded == 0) Measure.ungrinded = 1;
 	
-	Measure.difference = (fabs((Measure.grinded / Measure.ungrinded) - 1))*100;
+	Measure.difference = Measure.grinded <= Measure.ungrinded ? 
+						(fabs((Measure.grinded / Measure.ungrinded) - 1))*100 :
+						(Measure.grinded / Measure.ungrinded) * 100;
 }
 
 void ModeControl()

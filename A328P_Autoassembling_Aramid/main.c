@@ -31,20 +31,28 @@
 #define LeftOn		(!Check(PIND, 3))
 #define Active		(!Check(PIND, 6))
 
+#define Init	 0
+#define On		 1
+#define Off		 2
+#define TxOn	 3
+#define TxOff	 4
+#define RxOn	 5
+#define RxOff	 6
+
 #define Right	 		10
 #define Left 			20
 #define Stop			30
 #define Short			40
 
-#define Acceleration	1
-#define Deceleration	2
-#define Waiting			3
-#define Process			4
+#define Acceleration	11
+#define Waiting			22
+#define Process			33
 
-#define AccelDelay	10
-#define DecelDelay	5
+#define AccelDelay		30
 
-#define MovAvgSize	100
+#define MovAvgSize		110
+
+#define TxBufferSize	50
 
 #include <xc.h>
 #include <avr/io.h>
@@ -68,7 +76,7 @@ volatile struct
 
 volatile struct
 {
-	unsigned int pulseA, pulseP, ovf;
+	unsigned int ovf;
 	float Fa, Fp;
 } Measure;
 
@@ -78,6 +86,12 @@ volatile struct
 	unsigned short count;
 	bool active;		
 } Mode;
+
+volatile struct
+{
+	unsigned char byte;
+	bool byteReceived;
+} Rx;
 
 void Timer0(bool enable)
 {
@@ -149,22 +163,63 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 5;
 }
 
-void delay_ms(int ms)
+void USART(unsigned short option)
 {
-	while (0 < ms)
+	switch (option)
 	{
-		_delay_ms(1);
-		--ms;
+		case TxOn:
+			UCSR0B |= (1 << TXEN0);
+			break;
+		case TxOff:
+			UCSR0B &= (0 << TXEN0);
+			break;
+		case RxOn:
+			UCSR0B |= (1 << RXEN0) | (1 << RXCIE0);
+			break;
+		case RxOff:
+			UCSR0B &= (0 << RXEN0) | (0 << RXCIE0);
+			break;
+		case On:
+			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			break;
+		case Off:
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			break;
+		default:
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+			UBRR0  =  3;
+			break;
 	}
 }
 
-void delay_us(int us)
+ISR(USART_RX_vect)
 {
-	while (0 < us)
-	{
-		_delay_us(1);
-		--us;
-	}
+	Rx.byte = UDR0;
+	Rx.byteReceived++;
+}
+
+void TxChar(unsigned char c)
+{
+	while (!(UCSR0A & (1<<UDRE0)));
+	UDR0 = c;
+}
+
+void TxString(const char* s)
+{
+	for (int i=0; s[i]; i++) TxChar(s[i]);
+}
+
+void Transmit()
+{
+	static char buffer[TxBufferSize] = { 0 }, aramid[20], polyamide[20];
+		
+	sprintf(aramid, "A%.2f$", Measure.Fa);
+	strcat(buffer, aramid);
+	sprintf(polyamide, "P%.2f$", Measure.Fp);
+	strcat(buffer, polyamide);
+	TxString(buffer);
+	memset(buffer, 0, TxBufferSize);
 }
 
 float MovAvgAramid(float value, bool reset)
@@ -243,17 +298,17 @@ void EraseUnits(int x, int y, int offset, float count)
 
 void DisplayPrint()
 {
-	static char frequencyAramid[20], frequencyPolyamide[20];
+	static char speedAramid[20], speedPolyamide[20];
 	
 	if (Mode.mode == Waiting) return;
 	 
 	EraseUnits(0, 0, 3, Measure.Fa);
-	sprintf(frequencyAramid, "%.2f", Measure.Fa < 0 ? 0 : Measure.Fa);
-	lcd_puts(frequencyAramid);
+	sprintf(speedAramid, "%.2f", Measure.Fa < 0 ? 0 : Measure.Fa);
+	lcd_puts(speedAramid);
 	
 	EraseUnits(0, 1, 3, Measure.Fp);
-	sprintf(frequencyPolyamide, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
-	lcd_puts(frequencyPolyamide);
+	sprintf(speedPolyamide, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
+	lcd_puts(speedPolyamide);
 }
 
 void Initialization()
@@ -289,6 +344,7 @@ void Initialization()
 	 MovAvgAramid(0, true);
 	 MovAvgPolyamide(0, true);
 	 
+	 USART(Init);
 	 Timer0(false);
 	 Timer1(false);
 	 Timer2(true);
@@ -308,7 +364,7 @@ void Calculation()
 	// Lp experimental v4 = 0.1572 // 1.1790 // asm =  ?
 	// Lp experimental v3 = 0.1575 // 1,1812 // asm = -2
 	// Lp experimantal v2 = 0.1580 // 1.1850 // asm = -6
-																		   
+																	   
 	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.636, false); // (6.25/50.f * 0.0848 * 60 = 0.636 
 	Measure.Fp = MovAvgPolyamide(TCNT1*1.1790, false); // 50 imp/rev // (6.25/50.f * 0.161 * 60 = 1.2075 
 	
@@ -402,70 +458,54 @@ void ModeControl()
 	{
 		if (Mode.active) 
 		{
-			if (Mode.mode == Acceleration || Mode.mode == Deceleration)
-			{
-				if (Mode.count > 0 && Mode.mode == Acceleration) return;
-				
-				LedOn;
-				Mode.mode = Process;
-				Mode.count = 0;
-				Timer0(true);
-				Timer1(true);
-				lcd_clrline(9, 0);
-				lcd_puts("Process"); 
-				return;
-			}
+			if (Mode.mode == Process || (Mode.mode == Acceleration && Mode.count > 0)) return;
 			
-			return;				
+			LedOn;							 
+			Mode.mode = Process;
+			Mode.count = 0;
+			lcd_clrline(9, 0);
+			lcd_puts("Process");
+			return;			
 		}
 		
 		Mode.active = true;
 		Mode.count = AccelDelay;
 		Mode.mode = Acceleration;
+		Timer0(true);
+		Timer1(true);
+		USART(TxOn);
 		lcd_clrline(9, 0);
-		lcd_puts("Acceler");
+		lcd_puts("Accel");
 		return;
 	}
 	
 	if (Mode.active)
-	{
-		if (Mode.mode == Process)
-		{
-			Mode.count = DecelDelay;
-			Mode.mode = Deceleration;
-			lcd_clrline(9, 0);
-			lcd_puts("Deceler");
-			return;	
-		}
+	{		
+		LedOff;
+		PulseOff;
+		Mode.active = false;
+		Mode.mode = Waiting;
+		Mode.count = 0;
 		
-		if (Mode.mode == Deceleration || Mode.mode == Acceleration)
-		{
-			if (Mode.count > 0 && Mode.mode == Deceleration) return;
-			
-			LedOff;
-			PulseOff;
-			Mode.active = false;
-			Mode.mode = Waiting;
-			Mode.count = 0;
-			
-			lcd_clrscr();
-			lcd_home();
-			lcd_puts("0.0");
-			lcd_clrline(9, 0);
-			lcd_puts("Waiting");
-			
-			lcd_gotoxy(0, 1);
-			lcd_puts("0.0");
-			lcd_clrline(9, 1);
-			lcd_puts("Stop");
-			
-			MovAvgAramid(0, true);
-			MovAvgPolyamide(0, true);
-			
-			Timer0(false);
-			Timer1(false);
-			return;
-		}
+		Timer0(false);
+		Timer1(false);
+		
+		USART(TxOff);
+		
+		lcd_clrscr();
+		lcd_home();
+		lcd_puts("0.0");
+		lcd_clrline(9, 0);
+		lcd_puts("Waiting");
+		
+		lcd_gotoxy(0, 1);
+		lcd_puts("0.0");
+		lcd_clrline(9, 1);
+		lcd_puts("Stop");
+		
+		MovAvgAramid(0, true);
+		MovAvgPolyamide(0, true);
+		return;
 	}
 }
 
@@ -473,13 +513,13 @@ void Regulator()
 {
 	static float difference = 0;
 	
-	if (RightOn || LeftOn) return;
+	if (RightOn || LeftOn || Mode.mode == Waiting || Mode.mode == Acceleration) return;
 	
 	difference = Measure.Fa - Measure.Fp;
 	
-	if (difference >= -0.15 && difference <= 0.15) return;
+	if (difference >= -0.10 && difference <= 0.10) return;
 	
-	if (difference > 0.15) Step(Left); else Step(Right);
+	if (difference > 0.10) Step(Left); else Step(Right);
 }
 
 int main(void)
@@ -490,13 +530,14 @@ int main(void)
 	{	
 	 	Manual();
 		ModeControl();
-		if (Mode.mode == Process) Regulator();
+		Regulator();
 
 		if (MainTimer.ms160)
 		{
-			if (Mode.mode == Process) 
+			if (Mode.mode == Acceleration || Mode.mode == Process) 
 			{
 				Calculation();
+				Transmit();
 			}
 			MainTimer.ms160 = 0;
 		}
@@ -506,7 +547,7 @@ int main(void)
 			DisplayPrint();
 			MainTimer.ms992 = 0;
 			if (Mode.count > 0) Mode.count--;
-			if (Mode.mode == Acceleration || Mode.mode == Deceleration) LedInv;
+			if (Mode.mode == Acceleration) LedInv;
 		}
 	}
 }
