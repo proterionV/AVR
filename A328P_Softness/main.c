@@ -3,7 +3,7 @@
  *
  * Created: 3/17/2022 11:55:07 AM
  * Author: igor.abramov
- * Measure vibration level as softness of paper yarn
+ * Measure vibration level as roughness of paper yarn
  */ 
 
 #define F_CPU	16000000L
@@ -40,6 +40,11 @@
 #define Finished	4
 #define Pause		5
 
+#define Accel		10
+#define Decel		20
+#define Moving		30
+#define Stop		40
+
 #include <xc.h>
 #include <avr/io.h>
 #include <avr/eeprom.h>
@@ -68,13 +73,13 @@ volatile struct
  
 volatile struct
 {
-	float frequency;
+	float setting, frequency;
 	unsigned long int accum, increment;
 } DDS;
  
 volatile struct
 {
-	unsigned short mode, btn;
+	unsigned short mode, btn, motor;
 	bool active, action, changed;
 } Mode;
 
@@ -110,8 +115,8 @@ ISR(TIMER1_OVF_vect)
 {
 	if (MainTimer.ms200 >= 5)
 	{
-		MainTimer.ms1000++;
 		MainTimer.ms200 = 0;
+		MainTimer.ms1000++;
 	}
 	
 	MainTimer.ms200++;
@@ -201,50 +206,65 @@ void EraseUnits(int x, int y, int offset, float count)
 	lcd_gotoxy(x, y);
 }
 
-void DisplayPrint()
+void DisplayPrint(bool init)
 {
 	static char ungrinded[20], grinded[20], difference[20]; 
+	static bool print = true;
+	
+	if (init) 
+	{
+		print = true;
+		return;
+	}
+	
+	if (Mode.changed) 
+	{
+		lcd_clrline(6, 1);
+	
+		switch(Mode.mode)
+		{
+			case Waiting:
+				lcd_puts("Waiting");
+				break;
+			case Record:
+				lcd_puts("Record");
+				break;
+			case Comparsion:
+				lcd_puts("Comparsion");
+				break;
+			case Pause:
+				lcd_puts("Pause");
+				break;
+			default:
+				lcd_puts("Finished");
+				break;
+		}
+	
+		Mode.changed = false;
+	}
+	
+	if ((Mode.mode == Waiting || Mode.mode == Pause) && !print) return;
 	
 	EraseUnits(0, 0, 0, Measure.ungrinded);
 	sprintf(ungrinded, "%.2f", Measure.ungrinded);
 	lcd_gotoxy(0, 0);
 	lcd_puts(ungrinded);
 	
-	EraseUnits(0, 1, 0, Measure.grinded);
-	sprintf(grinded, "%.2f", Measure.grinded);
-	lcd_gotoxy(0, 1);
-	lcd_puts(grinded);
-	
-	EraseUnits(8, 0, 1, Measure.difference);
-	sprintf(difference, "%.2f", Measure.difference);
-	lcd_gotoxy(8, 0);
-	lcd_puts(difference);
-	lcd_putc('%');
-	
-	if (!Mode.changed) return;
-	
-	lcd_clrline(6, 1);
-	
-	switch(Mode.mode)
+	if (Mode.mode == Comparsion || print)
 	{
-		case Waiting:
-			lcd_puts("Waiting");
-			break;
-		case Record:
-			lcd_puts("Record");
-			break;
-		case Comparsion:
-			lcd_puts("Comparsion");
-			break;
-		case Pause:
-			lcd_puts("Pause");
-			break;
-		default:
-			lcd_puts("Finished");
-			break;	
+		EraseUnits(0, 1, 0, Measure.grinded);
+		sprintf(grinded, "%.2f", Measure.grinded);
+		lcd_gotoxy(0, 1);
+		lcd_puts(grinded);
+		
+		EraseUnits(8, 0, 2, Measure.difference);
+		sprintf(difference, "%.3f", Measure.difference);
+		lcd_gotoxy(8, 0);
+		lcd_puts(difference);
+		lcd_putc('%');
 	}
 	
-	Mode.changed = false;
+	print = false;
 }
 
 float GetAddendum(void)
@@ -265,10 +285,10 @@ void Initialization(const char* projectName)
 	 DDRD = 0b11000010;
 	 PORTD = 0b00111111;
 	 
-	 DDS.frequency = FREQUENCY;
-	 DDS.increment = GetAddendum();
+	 DDS.setting = 0;
 	 
 	 Mode.mode = Waiting;
+	 Mode.motor = Stop;
 	 Mode.changed = true;
 
 	 MainTimer.sec = 0;
@@ -277,7 +297,7 @@ void Initialization(const char* projectName)
 	 lcd_led(false);
 	 lcd_gotoxy(4, 0);
 	 lcd_puts(projectName);
-	 _delay_ms(2000);
+	 _delay_ms(1000);
 	 lcd_clrscr();
 	 lcd_home();
 	 
@@ -287,14 +307,45 @@ void Initialization(const char* projectName)
 	 sei();
  }
 
+void Calculation(bool reset)
+{
+	static float current = 0, previous = 0, sqr = 0, sum = 0;
+	static unsigned long int count = 0;
+	
+	if (reset)
+	{
+		current = 0;
+		previous = 0;
+		sum = 0;
+		count = 0;
+		return;
+	}
+	
+	Convert.voltage = Convert.value*0.004814453125;
+	current = fabs(Convert.voltage - 2.5);
+	//current = current == 2.5 ? 0 : current; 
+	sqr = (current + previous)/2;
+	sum += sqr;
+	previous = current;
+	
+	if (Mode.mode == Record) { Measure.ungrinded = sum/(++count); return; }
+	else Measure.grinded = sum/(++count);
+	
+	if (Measure.ungrinded == 0) Measure.ungrinded = 1;
+	
+	Measure.difference = (fabs((Measure.grinded / Measure.ungrinded) - 1))*100;
+}
+
 void ModeControl()
 {
 	if (Mode.active && MainTimer.sec < 1)
 	{
 		Timer2(false);
+		Mode.motor = Decel;
 		Mode.active = false;
 		if (Mode.mode == Record) Mode.mode = Waiting;
-		if (Mode.mode == Comparsion) Mode.mode = Finished;
+		if (Mode.mode == Comparsion) { Mode.mode = Finished; LedOff; }
+		Calculation(true);
 		Mode.changed = true;
 	}
 	
@@ -310,25 +361,33 @@ void ModeControl()
 						if (!Measure.ungrinded) Mode.mode = Record;
 						else Mode.mode = Comparsion;
 						Mode.active = true;
+						Mode.motor = Accel;
 						Timer2(true);
 						Converter(On);
 						MainTimer.sec = PERIOD;
+						LedOn;
 						break;
 					case Record:
 					case Comparsion:
 						Timer2(false);
 						Mode.mode = Pause;
+						Mode.motor = Decel;
 						Mode.active = false;
 						break;
 					case Pause:
 						Timer2(true);
 						Mode.active = true;
+						Mode.motor = Accel;
 						if (Measure.grinded > 0) Mode.mode = Comparsion;
 						else Mode.mode = Record;
+						Converter(On);
+						LedOn;
 						break;
 					default:
-						Mode.mode = Waiting;
 						Timer2(false);
+						DisplayPrint(true);
+						Mode.mode = Waiting;
+						Mode.motor = Decel;
 						Measure.ungrinded = 0;
 						Measure.grinded = 0;
 						Measure.difference = 0;
@@ -342,18 +401,32 @@ void ModeControl()
 	}
 }
 
-void Calculation()
+void MotorControl()
 {
-	Convert.voltage = Convert.value*0.0048828125;
-	
-	if (Mode.mode == Record)
+	if (Mode.motor == Accel)
 	{
-		Measure.ungrinded = Convert.voltage;
+		if (DDS.frequency >= FREQUENCY) 
+		{
+			Mode.motor = Moving;
+			return;
+		}
+		
+		DDS.frequency++;
+		DDS.increment = GetAddendum();
 		return;
 	}
 	
-	Measure.grinded = Convert.voltage;
-	Measure.difference = (fabs((Measure.grinded / Measure.ungrinded) - 1))*100; 
+	if (Mode.motor == Decel)
+	{
+		if (DDS.frequency > 0) 
+		{
+			DDS.frequency--;
+			DDS.increment = GetAddendum();
+			return;
+		}
+		
+		Mode.motor = Stop;
+	}	
 }
 
 int main(void)
@@ -363,12 +436,13 @@ int main(void)
 	while(1)
 	{	
 		ModeControl();
+		MotorControl();
 		
 		if (Convert.done)
 		{
 			if (Mode.mode == Record || Mode.mode == Comparsion) 
 			{
-				Calculation();
+				Calculation(false);
 				Converter(On);
 			}
 			
@@ -377,8 +451,8 @@ int main(void)
 		
 		if (MainTimer.ms1000)
 		{
-			DisplayPrint();
-			if (Mode.mode == Waiting) LedInv;
+			DisplayPrint(false);
+			if (Mode.mode == Waiting || Mode.mode == Pause) LedInv;
 			if (MainTimer.sec > 0 && (Mode.mode == Record || Mode.mode == Comparsion)) MainTimer.sec--;
 			MainTimer.ms1000 = 0;
 		}
