@@ -83,8 +83,7 @@ volatile struct
 volatile struct
 {
 	unsigned short mode;
-	unsigned short count;
-	bool active;		
+	unsigned short count;		
 } Mode;
 
 volatile struct
@@ -322,33 +321,30 @@ void Initialization()
 	 DDRD = 0b10000000;
 	 PORTD = 0b01111111;
 	 
-	 PulseOff;
-	 
-	 Mode.mode = Waiting;
-	 Mode.active = false;
-	 Mode.count = 0;
-	 
 	 lcd_init(LCD_DISP_ON);
 	 lcd_clrscr();
 	 lcd_home();
-	 
+		
 	 lcd_puts("0.0");
 	 lcd_clrline(9, 0);
 	 lcd_puts("Waiting");
-	 
+		
 	 lcd_gotoxy(0, 1);
 	 lcd_puts("0.0");
 	 lcd_clrline(9, 1);
 	 lcd_puts("Stop");
 	 
+	 PulseOff;
+	 
+	 Mode.mode = Waiting;
+	 Mode.count = 0;
+	 
 	 MovAvgAramid(0, true);
 	 MovAvgPolyamide(0, true);
 	 
 	 USART(Init);
-	 Timer0(false);
-	 Timer1(false);
 	 Timer2(true);
-	 sei();	 
+	 sei();
  }
 
 void Calculation()
@@ -458,59 +454,40 @@ void ModeControl()
 {
 	if (Active)
 	{
-		if (Mode.active) 
+		if (Mode.mode == Waiting)
 		{
-			if (Mode.mode == Process || (Mode.mode == Acceleration && Mode.count > 0)) return;
-			
-			LedOn;							 
-			Mode.mode = Process;
+			Mode.count = AccelDelay;
+			Mode.mode = Acceleration;
+			Measure.Fa = 0;
+			Measure.Fp = 0;
+			Measure.ovf = 0;
+			MovAvgAramid(0, true);
+			MovAvgPolyamide(0, true);
+			TCNT0 = 0;
+			TCNT1 = 0;
+			Timer0(true);
+			Timer1(true);
+			USART(TxOn);
 			lcd_clrline(9, 0);
-			lcd_puts("Process");
-			return;			
+			lcd_puts("Accel");
+			return;
 		}
 		
-		Mode.active = true;
-		Mode.count = AccelDelay;
-		Mode.mode = Acceleration;
-		Timer0(true);
-		Timer1(true);
-		USART(TxOn);
-		lcd_clrline(9, 0);
-		lcd_puts("Accel");
+		if (Mode.mode == Acceleration && Mode.count) 
+		{	
+			LedOn;							 
+			Mode.mode = Process;		
+		}
+		
 		return;
 	}
 	
-	if (Mode.active)
-	{		
-		LedOff;
-		PulseOff;
-		Mode.active = false;
-		Mode.mode = Waiting;
-		Mode.count = 0;
-		
-		Timer0(false);
-		Timer1(false);
-		TCNT0 = 0;
-		TCNT1 = 0;
-		Measure.Fa = 0;
-		Measure.Fp = 0;
-		Measure.ovf = 0;
-		MovAvgAramid(0, true);
-		MovAvgPolyamide(0, true);
-		
-		USART(Off);
-		
-		lcd_clrscr();
-		lcd_home();
-		lcd_puts("0.00");
-		lcd_clrline(9, 0);
-		lcd_puts("Waiting");
-		
-		lcd_gotoxy(0, 1);
-		lcd_puts("0.00");
-		lcd_clrline(9, 1);
-		lcd_puts("Stop");
-	}
+	LedOff;
+	PulseOff;	
+	Timer0(false);
+	Timer1(false);
+	USART(Off);		
+	Mode.mode = Waiting;
 }
 
 void Regulator()
@@ -531,14 +508,14 @@ int main(void)
 	Initialization();
 	
 	while(1)
-	{	
-	 	Manual();
+	{
+		Manual();
 		ModeControl();
 		Regulator();
 
 		if (MainTimer.ms160)
 		{
-			if (Mode.mode == Acceleration || Mode.mode == Process) 
+			if (Mode.mode == Acceleration || Mode.mode == Process)
 			{
 				Calculation();
 				Transmit();
@@ -550,7 +527,7 @@ int main(void)
 		{
 			DisplayPrint();
 			MainTimer.ms992 = 0;
-			if (Mode.count > 0) Mode.count--;
+			if (Mode.count) Mode.count--;
 			if (Mode.mode == Acceleration) LedInv;
 		}
 	}
