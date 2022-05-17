@@ -50,7 +50,7 @@
 
 #define AccelDelay		30
 
-#define MovAvgSize		110
+#define MovAvgSize		120
 
 #define TxBufferSize	50
 
@@ -394,6 +394,8 @@ void Step(unsigned short direction)
 			break;	
 	}	 
 	
+	_delay_ms(20);
+	
 	MainTimer.moving = true;
 }
 
@@ -462,7 +464,6 @@ void ModeControl()
 			
 			LedOn;							 
 			Mode.mode = Process;
-			Mode.count = 0;
 			lcd_clrline(9, 0);
 			lcd_puts("Process");
 			return;			
@@ -489,23 +490,26 @@ void ModeControl()
 		
 		Timer0(false);
 		Timer1(false);
+		TCNT0 = 0;
+		TCNT1 = 0;
+		Measure.Fa = 0;
+		Measure.Fp = 0;
+		Measure.ovf = 0;
+		MovAvgAramid(0, true);
+		MovAvgPolyamide(0, true);
 		
-		USART(TxOff);
+		USART(Off);
 		
 		lcd_clrscr();
 		lcd_home();
-		lcd_puts("0.0");
+		lcd_puts("0.00");
 		lcd_clrline(9, 0);
 		lcd_puts("Waiting");
 		
 		lcd_gotoxy(0, 1);
-		lcd_puts("0.0");
+		lcd_puts("0.00");
 		lcd_clrline(9, 1);
 		lcd_puts("Stop");
-		
-		MovAvgAramid(0, true);
-		MovAvgPolyamide(0, true);
-		return;
 	}
 }
 
@@ -517,9 +521,9 @@ void Regulator()
 	
 	difference = Measure.Fa - Measure.Fp;
 	
-	if (difference >= -0.10 && difference <= 0.10) return;
+	if (difference >= -0.12 && difference <= 0.12) return;
 	
-	if (difference > 0.10) Step(Left); else Step(Right);
+	if (difference > 0.12) Step(Left); else Step(Right);
 }
 
 int main(void)

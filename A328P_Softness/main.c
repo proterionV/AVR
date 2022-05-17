@@ -91,7 +91,7 @@ volatile struct
 
 const unsigned long int ACCUM_MAXIMUM = 1000000000;
 const unsigned int		FREQUENCY_MAXIMUM = 7812;
-const unsigned int		FREQUENCY = 2000;
+const unsigned int		FREQUENCY = 3000;
 const unsigned int		PERIOD = 30;
 
 void Timer1(unsigned short mode)
@@ -258,7 +258,7 @@ void DisplayPrint(bool init)
 		lcd_puts(grinded);
 		
 		EraseUnits(8, 0, 2, Measure.difference);
-		sprintf(difference, "%.3f", Measure.difference);
+		sprintf(difference, "%.1f", Measure.difference);
 		lcd_gotoxy(8, 0);
 		lcd_puts(difference);
 		lcd_putc('%');
@@ -316,10 +316,13 @@ void Calculation(bool reset)
 	{
 		current = 0;
 		previous = 0;
+		sqr = 0;
 		sum = 0;
 		count = 0;
 		return;
 	}
+	
+	if (MainTimer.sec <= 2 || MainTimer.sec >= PERIOD-2) return;
 	
 	Convert.voltage = Convert.value*0.004814453125;
 	current = fabs(Convert.voltage - 2.5);
@@ -327,15 +330,14 @@ void Calculation(bool reset)
 	sqr = (current + previous)/2;
 	sum += sqr;
 	previous = current;
+	count++;
 	
-	if (Mode.mode == Record) { Measure.ungrinded = sum/(++count); return; }
-	else Measure.grinded = sum/(++count);
-	
-	if (Measure.ungrinded == 0) Measure.ungrinded = 1;
+	if (Mode.mode == Record) { Measure.ungrinded = sum/count; return; }
+	else Measure.grinded = sum/count;
 	
 	Measure.difference = Measure.grinded <= Measure.ungrinded ? 
 						(fabs((Measure.grinded / Measure.ungrinded) - 1))*100 :
-						(Measure.grinded / Measure.ungrinded) * 100;
+						((Measure.grinded / Measure.ungrinded) * 100)-100;
 }
 
 void ModeControl()
@@ -388,6 +390,7 @@ void ModeControl()
 					default:
 						Timer2(false);
 						DisplayPrint(true);
+						Calculation(true);
 						Mode.mode = Waiting;
 						Mode.motor = Decel;
 						Measure.ungrinded = 0;
