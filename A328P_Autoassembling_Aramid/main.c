@@ -48,11 +48,11 @@
 #define Waiting			22
 #define Process			33
 
-#define Interval		4
+#define Interval		5
 #define AccelDelay		30
-#define RangeUp			0.10
-#define RangeDown		-0.10
 #define TxBufferSize	50
+#define RangeUp			0.10
+#define RangeDown	   -0.10
 #define AArraySize		30
 #define PArraySize		30
 #define TArraySize		10
@@ -383,7 +383,7 @@ void Initialization()
 	 lcd_home();
 		
 	 lcd_clrline(9, 1);
-	 lcd_puts("Stop");
+	 lcd_puts("OK");
 	 DisplayPrint();
 	 
 	 PulseOff;
@@ -462,7 +462,7 @@ void Manual()
 		if (key == Stop) return;
 		
 		lcd_clrline(9, 1);
-		lcd_puts("Stop");
+		lcd_puts("OK");
 		key = Stop;
 		return;
 	}
@@ -554,7 +554,7 @@ void Regulator()
 	{
 		if (key == Stop) return;
 		lcd_clrline(9, 1);
-		lcd_puts("Stop");
+		lcd_puts("OK");
 		key = Stop;
 		return;
 	}
@@ -565,7 +565,7 @@ void Regulator()
 	{
 		if (key == Stop) return;
 		lcd_clrline(9, 1);
-		lcd_puts("Stop");
+		lcd_puts("OK");
 		key = Stop;
 		return;
 	}
