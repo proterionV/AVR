@@ -50,10 +50,13 @@
 
 #define Interval		4
 #define AccelDelay		30
-#define MovAvgSize		30
 #define RangeUp			0.10
 #define RangeDown		-0.10
 #define TxBufferSize	50
+#define AArraySize		30
+#define PArraySize		30
+#define TArraySize		10
+#define HArraySize		10
 
 #include <xc.h>
 #include <avr/io.h>
@@ -68,6 +71,7 @@
 #include <stdbool.h>
 #include <util/delay.h>
 #include "lcd/lcd.h"
+#include "dht/dht.h"
 
 volatile struct
 {
@@ -77,7 +81,7 @@ volatile struct
 volatile struct
 {
 	unsigned int ovf;
-	float Fa, Fp;
+	float Fa, Fp, temperature, humidity;
 } Measure;
 
 volatile struct
@@ -201,12 +205,20 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char buffer[TxBufferSize] = { 0 }, aramid[20], polyamide[20];
+	static char buffer[TxBufferSize] = { 0 }, aramid[20], polyamide[20], temperature[20], humidity[20];
 		
 	sprintf(aramid, "A%.2f$", Measure.Fa);
 	strcat(buffer, aramid);
+	
 	sprintf(polyamide, "P%.2f$", Measure.Fp);
 	strcat(buffer, polyamide);
+	
+	sprintf(temperature, "T%.1f$", Measure.temperature);
+	strcat(buffer, temperature);
+	
+	sprintf(humidity, "H%.1f$", Measure.humidity);
+	strcat(buffer, humidity);
+	
 	TxString(buffer);
 	memset(buffer, 0, TxBufferSize);
 }
@@ -214,12 +226,12 @@ void Transmit()
 float MovAvgAramid(float value, bool reset)
 {
 	static unsigned short index = 0;
-	static float values[MovAvgSize];
+	static float values[AArraySize];
 	static float result;
 	
 	if (reset)
 	{
-		memset(values, 0, MovAvgSize);
+		memset(values, 0, AArraySize);
 		result = 0;
 		index = 0;
 		return 0;
@@ -227,20 +239,20 @@ float MovAvgAramid(float value, bool reset)
 	
 	result += value - values[index];
 	values[index] = value;
-	index = (index + 1) % MovAvgSize;
+	index = (index + 1) % AArraySize;
 	
-	return result/MovAvgSize;
+	return result/AArraySize;
 }
 
 float MovAvgPolyamide(float value, bool reset)
 {
 	static unsigned short index = 0;
-	static float values[MovAvgSize];
+	static float values[PArraySize];
 	static float result;
 	
 	if (reset)
 	{
-		memset(values, 0, MovAvgSize);
+		memset(values, 0, PArraySize);
 		result = 0;
 		index = 0;
 		return 0;
@@ -248,9 +260,66 @@ float MovAvgPolyamide(float value, bool reset)
 	
 	result += value - values[index];
 	values[index] = value;
-	index = (index + 1) % MovAvgSize;
+	index = (index + 1) % PArraySize;
 	
-	return result/MovAvgSize;
+	return result/PArraySize;
+}
+
+float MovAvgTemp(float value, bool reset)
+{
+	static unsigned short index = 0;
+	static float values[TArraySize];
+	static float result;
+	
+	if (reset)
+	{
+		memset(values, 0, TArraySize);
+		result = 0;
+		index = 0;
+		return 0;
+	}
+	
+	result += value - values[index];
+	values[index] = value;
+	index = (index + 1) % TArraySize;
+	
+	return result/TArraySize;
+}
+
+float MovAvgHum(float value, bool reset)
+{
+	static unsigned short index = 0;
+	static float values[HArraySize];
+	static float result;
+	
+	if (reset)
+	{
+		memset(values, 0, HArraySize);
+		result = 0;
+		index = 0;
+		return 0;
+	}
+	
+	result += value - values[index];
+	values[index] = value;
+	index = (index + 1) % HArraySize;
+	
+	return result/HArraySize;
+}
+
+void GetOneWireData()
+{
+	static float temperature, humidity;
+	
+	if (dht_gettemperaturehumidity(&temperature, &humidity) != -1)
+	{
+		Measure.temperature = MovAvgTemp(temperature, false);
+		Measure.humidity = MovAvgHum(humidity, false);
+		return;
+	}
+	
+	Measure.temperature = MovAvgTemp(-1, false);
+	Measure.humidity = MovAvgHum(-1, false);
 }
 
 void EraseUnits(int x, int y, int offset, float count)
@@ -300,10 +369,10 @@ void DisplayPrint()
 
 void Initialization()
  {
-	 DDRB = 0b00111111;
+	 DDRB = 0b00000111;
 	 PORTB = 0b00000111;
 	 
-	 DDRC = 0b00111111;
+	 DDRC = 0b00111100;
 	 PORTC = 0b00000000;
 	 
 	 DDRD = 0b10000000;
@@ -321,8 +390,10 @@ void Initialization()
 	 Mode.mode = Waiting;
 	 Mode.count = 0;
 	 
-	 MovAvgAramid(0, true);
-	 MovAvgPolyamide(0, true);
+	 Measure.Fa = MovAvgAramid(0, true);
+	 Measure.Fp = MovAvgPolyamide(0, true);
+	 Measure.temperature = MovAvgTemp(0, true);
+	 Measure.humidity = MovAvgHum(0, true);
 	 
 	 USART(Init);
 	 Timer0(true);
@@ -464,7 +535,9 @@ void ModeControl()
 	PulseOff;
 	Mode.mode = Waiting;
 	Measure.Fa = MovAvgAramid(0, true);
-	Measure.Fp = MovAvgPolyamide(0, true);;
+	Measure.Fp = MovAvgPolyamide(0, true);
+	Measure.temperature = MovAvgTemp(0, true);
+	Measure.humidity = MovAvgHum(0, true);
 	Measure.ovf = 0;
 	DisplayPrint();
 	USART(Off);		
@@ -488,7 +561,7 @@ void Regulator()
 	
 	difference = Measure.Fa - Measure.Fp;
 	
-	if (difference >= RangeDown && difference <= RangeUp) 
+	if (difference > RangeDown && difference < RangeUp) 
 	{
 		if (key == Stop) return;
 		lcd_clrline(9, 1);
@@ -497,7 +570,7 @@ void Regulator()
 		return;
 	}
 	
-	if (difference > RangeUp) 
+	if (difference >= RangeUp) 
 	{
 		if (key == Left)
 		{
@@ -540,6 +613,7 @@ int main(void)
 			if (Mode.mode == Acceleration || Mode.mode == Process)
 			{
 				Calculation();
+				GetOneWireData();
 				DisplayPrint();
 				Transmit();
 			}
