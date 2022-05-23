@@ -22,6 +22,11 @@
 #define LedOff		Low(PORTB, 5)
 #define LedInv		Inv(PORTB, 5)
 
+#define Stop		Check(PORTB, 4)
+#define StopOn		High(PORTB, 4)
+#define StopOff		Low(PORTB, 4)
+#define StopInv		Inv(PORTB, 4)
+
 #define Pulse		Check(PORTD, 7)
 #define PulseOn		High(PORTD, 7)
 #define PulseOff	Low(PORTD, 7)
@@ -53,8 +58,9 @@
 #define Inside			32
 #define After			33
 
-#define Interval		6
-#define AccelDelay		5
+#define Interval		7
+#define AccelDelay		40
+#define AlarmDelay		60
 #define TempBufferSize  20
 #define TxBufferSize	100
 #define RxBufferSize    250
@@ -104,9 +110,10 @@ volatile struct
 volatile struct
 {
 	unsigned short current;
-	unsigned short count;
+	unsigned short count, alarmCount;
 	unsigned short key;
-	short direction;		
+	short direction;
+	bool alarm;		
 } Mode;
 
 volatile struct
@@ -121,8 +128,7 @@ volatile struct
 	bool receiving, handling;
 	bool building, sending;
 	bool reset;
-	unsigned short delay, timeout;
-	
+	unsigned short delay, timeout;	
 } Server;
 
 void Timer0(bool enable)
@@ -356,15 +362,21 @@ void GetOneWireData()
 
 void DisplayPrint()
 {
-	static char speedAramid[20] = { 0 }, speedPolyamide[20] = { 0 };
+	static char A[20] = { 0 }, P[20] = { 0 };
 	 
 	EraseUnits(0, 0, 3, Measure.Fa);
-	sprintf(speedAramid, "%.2f", Measure.Fa < 0 ? 0 : Measure.Fa);
-	lcd_puts(speedAramid);
+	sprintf(A, "%.2f", Measure.Fa < 0 ? 0 : Measure.Fa);
+	lcd_puts(A);
 	
 	EraseUnits(0, 1, 3, Measure.Fp);
-	sprintf(speedPolyamide, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
-	lcd_puts(speedPolyamide);
+	sprintf(P, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
+	lcd_puts(P);
+	
+	if (Mode.alarm) 
+	{
+		lcd_clrline(10, 1);
+		lcd_puts("alarm");
+	}
 }
 
 void Initialization()
@@ -390,6 +402,8 @@ void Initialization()
 	 Mode.current = Waiting;
 	 Mode.key = OK;
 	 Mode.count = 0;
+	 Mode.alarmCount = 0;
+	 Mode.alarm = false;
 	 
 	 Measure.Fa = 0;
 	 Measure.Fp = 0;
@@ -403,6 +417,7 @@ void Initialization()
 	 USART(Init);
 	 Timer2(true);
 	 sei();
+	 StopOff;
 	 LedOff;
  }
 
@@ -515,6 +530,8 @@ void ModeControl()
 		{
 			Mode.count = AccelDelay;
 			Mode.current = Acceleration;
+			Mode.alarm = false;
+			lcd_clrline(10, 1);
 			USART(TxOn);
 			Timer0(true);
 			Timer1(true);
@@ -558,6 +575,7 @@ void ModeControl()
 	Measure.humidity = 0;
 	Measure.ovf = 0;
 	DisplayPrint();	
+	StopOff;
 	LedOff;	
 }
 
@@ -573,6 +591,7 @@ void Regulator()
 		lcd_clrline(9, 0);
 		lcd_puts("OK");
 		Mode.direction = 0;
+		Mode.alarm = false;
 		Mode.key = OK;
 		return;
 	}
@@ -582,6 +601,7 @@ void Regulator()
 	if (difference > RangeDown && difference < RangeUp) 
 	{
 		if (Mode.key == OK) return;
+		if (Mode.alarmCount < AlarmDelay) Mode.alarmCount = AlarmDelay;
 		lcd_clrline(9, 0);
 		lcd_puts("OK");
 		Mode.direction = 0;
@@ -813,6 +833,12 @@ int main(void)
 				TCNT0 = 0;
 				TCNT1 = 0;
 				Measure.ovf = 0;
+				if (Mode.current == Process && Mode.key != OK) Mode.alarmCount--;
+				if (!Mode.alarmCount)
+				{
+					StopOn;
+					Mode.alarm = true;
+				}
 			}
 			
 			if (Mode.count) Mode.count--;
