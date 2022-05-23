@@ -41,7 +41,7 @@
 
 #define Right	 		10
 #define Left 			20
-#define Stop			30
+#define OK				30
 #define Short			40
 
 #define Acceleration	11
@@ -54,7 +54,7 @@
 #define After			33
 
 #define Interval		6
-#define AccelDelay		40
+#define AccelDelay		5
 #define TempBufferSize  20
 #define TxBufferSize	100
 #define RxBufferSize    250
@@ -103,8 +103,9 @@ volatile struct
 
 volatile struct
 {
-	unsigned short mode;
+	unsigned short current;
 	unsigned short count;
+	unsigned short key;
 	short direction;		
 } Mode;
 
@@ -254,103 +255,6 @@ void Transmit()
 	memset(buffer, 0, TxBufferSize);
 }
 
-float MovAvgAramid(float value, bool reset)
-{
-	static unsigned short index = 0;
-	static float values[AArraySize];
-	static float result;
-	
-	if (reset)
-	{
-		result = 0;
-		index = 0;
-		memset(values, 0, AArraySize-1);
-		return 0;
-	}
-	
-	result += value - values[index];
-	values[index] = value;
-	index = (index + 1) % AArraySize;
-	
-	return result/AArraySize;
-}
-
-float MovAvgPolyamide(float value, bool reset)
-{
-	static unsigned short index = 0;
-	static float values[PArraySize];
-	static float result;
-	
-	if (reset)
-	{
-		result = 0;
-		index = 0;
-		memset(values, 0, PArraySize-1);
-		return 0;
-	}
-	
-	result += value - values[index];
-	values[index] = value;
-	index = (index + 1) % PArraySize;
-	
-	return result/PArraySize;
-}
-
-float MovAvgTemp(float value, bool reset)
-{
-	static unsigned short index = 0;
-	static float values[TArraySize];
-	static float result;
-	
-	if (reset)
-	{
-		result = 0;
-		index = 0;
-		return 0;
-	}
-	
-	result += value - values[index];
-	values[index] = value;
-	index = (index + 1) % TArraySize;
-	
-	return result/TArraySize;
-}
-
-float MovAvgHum(float value, bool reset)
-{
-	static unsigned short index = 0;
-	static float values[HArraySize];
-	static float result;
-	
-	if (reset)
-	{
-		result = 0;
-		index = 0;
-		return 0;
-	}
-	
-	result += value - values[index];
-	values[index] = value;
-	index = (index + 1) % HArraySize;
-	
-	return result/HArraySize;
-}
-
-void GetOneWireData()
-{
-	static float temperature, humidity;
-	
-	if (dht_gettemperaturehumidity(&temperature, &humidity) != -1)
-	{
-		Measure.temperature = MovAvgTemp(temperature, false);
-		Measure.humidity = MovAvgHum(humidity, false);
-		return;
-	}
-	
-	Measure.temperature = MovAvgTemp(-1, false);
-	Measure.humidity = MovAvgHum(-1, false);
-}
-
 void EraseUnits(int x, int y, int offset, float count)
 {
 	char eraser = 32;
@@ -383,9 +287,76 @@ void EraseUnits(int x, int y, int offset, float count)
 	lcd_gotoxy(x, y);
 }
 
+float MovAvgAramid(float value)
+{
+	static unsigned short index = 0;
+	static float array[AArraySize] = { 0 };
+	static float result = 0;
+	
+	result += value - array[index];
+	array[index] = value;
+	index = (index + 1) % AArraySize;
+	
+	return result/AArraySize;
+}
+
+float MovAvgPolyamide(float value)
+{
+	static unsigned short index = 0;
+	static float array[PArraySize] = { 0 };
+	static float result = 0;
+	
+	result += value - array[index];
+	array[index] = value;
+	index = (index + 1) % PArraySize;
+	
+	return result/PArraySize;
+}
+
+float MovAvgTemp(float value)
+{
+	static unsigned short index = 0;
+	static float values[TArraySize];
+	static float result;
+	
+	result += value - values[index];
+	values[index] = value;
+	index = (index + 1) % TArraySize;
+	
+	return result/TArraySize;
+}
+
+float MovAvgHum(float value)
+{
+	static unsigned short index = 0;
+	static float values[HArraySize];
+	static float result;
+	
+	result += value - values[index];
+	values[index] = value;
+	index = (index + 1) % HArraySize;
+	
+	return result/HArraySize;
+}
+
+void GetOneWireData()
+{
+	static float temperature, humidity;
+	
+	if (dht_gettemperaturehumidity(&temperature, &humidity) != -1)
+	{
+		Measure.temperature = MovAvgTemp(temperature);
+		Measure.humidity = MovAvgHum(humidity);
+		return;
+	}
+	
+	Measure.temperature = MovAvgTemp(-1);
+	Measure.humidity = MovAvgHum(-1);
+}
+
 void DisplayPrint()
 {
-	static char speedAramid[20], speedPolyamide[20];
+	static char speedAramid[20] = { 0 }, speedPolyamide[20] = { 0 };
 	 
 	EraseUnits(0, 0, 3, Measure.Fa);
 	sprintf(speedAramid, "%.2f", Measure.Fa < 0 ? 0 : Measure.Fa);
@@ -398,8 +369,8 @@ void DisplayPrint()
 
 void Initialization()
  {
-	 DDRB = 0b00000111;
-	 PORTB = 0b00000111;
+	 DDRB = 0b00100111;
+	 PORTB = 0b00000000;
 	 
 	 DDRC = 0b00111100;
 	 PORTC = 0b00000000;
@@ -407,31 +378,32 @@ void Initialization()
 	 DDRD = 0b10000000;
 	 PORTD = 0b01111111;
 	 
+	 LedOn;
 	 lcd_init(LCD_DISP_ON);
 	 lcd_clrscr();
 	 lcd_home();
-		
+	 
 	 lcd_clrline(9, 0);
 	 lcd_puts("OK");
-	 DisplayPrint();
 	 
 	 PulseOff;
-	 Mode.mode = Waiting;
+	 Mode.current = Waiting;
+	 Mode.key = OK;
 	 Mode.count = 0;
 	 
-	 Measure.Fa = MovAvgAramid(0, true);
-	 Measure.Fp = MovAvgPolyamide(0, true);
-	 Measure.temperature = MovAvgTemp(0, true);
-	 Measure.humidity = MovAvgHum(0, true);
+	 Measure.Fa = 0;
+	 Measure.Fp = 0;
+	 Measure.temperature = 0;
+	 Measure.humidity = 0;
 	 
 	 Server.tryToConnect = true;
 	 Server.delay = -1;
 	 
+	 DisplayPrint();
 	 USART(Init);
-	 Timer0(true);
-	 Timer1(true);
 	 Timer2(true);
 	 sei();
+	 LedOff;
  }
 
 void Calculation()
@@ -453,12 +425,8 @@ void Calculation()
 	//Measure.Fp = MovAvgPolyamide(TCNT1*1.1790, false); // 50 imp/rev // (6.25/50.f * 0.161 * 60 = 1.2075 
 	
 	// 992 ms
-	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.10258, false); // (1000/992/50.f * 0.0848 * 60 = 0.10258
-	Measure.Fp = MovAvgPolyamide(TCNT1*0.1907, false); // 50 imp/rev // (1000/992/50.f * 0.1575 * 60 = 0.19052
-
-	TCNT0 = 0;
-	TCNT1 = 0;
-	Measure.ovf = 0;
+	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.10258); // (1000/992/50.f * 0.0848 * 60 = 0.10258
+	Measure.Fp = MovAvgPolyamide(TCNT1*0.1907); // 50 imp/rev // (1000/992/50.f * 0.1575 * 60 = 0.19052
 }
 
 void Step(unsigned short direction)
@@ -488,31 +456,29 @@ void Step(unsigned short direction)
 
 void Manual()
 {
-	static unsigned short key = Stop;
-	
 	if (!(RightOn | LeftOn)) 
 	{
-		if (key == Stop) return;
+		if (Mode.key == OK || Mode.current == Process) return;
 		
 		lcd_clrline(9, 0);
 		lcd_puts("OK");
-		key = Stop;
+		Mode.key = OK;
 		return;
 	}
 	
 	if (RightOn & LeftOn) 
 	{
-		if (key == Short) return;
+		if (Mode.key == Short) return;
 		
 		lcd_clrline(9, 0);
 		lcd_puts("Short");
-		key = Short;
+		Mode.key = Short;
 		return;
 	}
 	
 	if (RightOn) 
 	{ 
-		if (key == Right) 
+		if (Mode.key == Right) 
 		{
 			Step(Right);
 			return;
@@ -521,13 +487,13 @@ void Manual()
 		Step(Right);
 		lcd_clrline(9, 0);
 		lcd_puts("Right");
-		key = Right;
+		Mode.key = Right;
 		return; 
 	}
 	
 	if (LeftOn) 
 	{
-		if (key == Left)
+		if (Mode.key == Left)
 		{
 			Step(Left);
 			return;
@@ -536,68 +502,78 @@ void Manual()
 		Step(Left);
 		lcd_clrline(9, 0);
 		lcd_puts("Left");
-		key = Left;
+		Mode.key = Left;
 		return;
 	}
 }
 
 void ModeControl()
-{
+{	
 	if (Active)
 	{
-		if (Mode.mode == Waiting)
+		if (Mode.current == Waiting)
 		{
 			Mode.count = AccelDelay;
-			Mode.mode = Acceleration;
+			Mode.current = Acceleration;
 			USART(TxOn);
+			Timer0(true);
+			Timer1(true);
 			return;
 		}
 		
-		if (Mode.mode == Acceleration && !Mode.count) 
+		if (Mode.current == Acceleration && !Mode.count) 
 		{	
 			LedOn;							 
-			Mode.mode = Process;		
+			Mode.current = Process;		
 		}
 		
 		return;
 	}
 	
-	if (Mode.mode == Waiting) return;
+	if (Mode.current == Waiting) return;
 	
-	LedOff;
 	PulseOff;
-	Mode.mode = Waiting;
-	Measure.Fa = MovAvgAramid(0, true);
-	Measure.Fp = MovAvgPolyamide(0, true);
-	Measure.temperature = MovAvgTemp(0, true);
-	Measure.humidity = MovAvgHum(0, true);
+	USART(Off);
+	Timer0(false);
+	Timer1(false);
+	
+	for (int i = 0; i<40; i++) 
+	{
+		MovAvgAramid(0);
+		MovAvgPolyamide(0);
+		
+		if (i < 10) 
+		{
+			MovAvgTemp(0);
+			MovAvgHum(0);
+		}	
+	}
+	
+	TCNT0 = 0;
+	TCNT1 = 0;
+	Mode.current = Waiting;
+	Measure.Fa = 0;
+	Measure.Fp = 0;
+	Measure.temperature = 0;
+	Measure.humidity = 0;
 	Measure.ovf = 0;
-	DisplayPrint();
-	USART(Off);		
+	DisplayPrint();	
+	LedOff;	
 }
 
 void Regulator()
 {
-	static unsigned short key = Stop;
 	static float difference = 0;
 	
-	if (RightOn || LeftOn) 
-	{
-		if (key == Left || key == Right)
-		{
-			Mode.direction = 0;
-			key = Stop;
-		}
-		return; 
-	}
+	if (RightOn || LeftOn) return; 
 	
-	if (Mode.mode == Waiting || Mode.mode == Acceleration) 
+	if (Mode.current == Waiting || Mode.current == Acceleration) 
 	{
-		if (key == Stop) return;
+		if (Mode.key == OK) return;
 		lcd_clrline(9, 0);
 		lcd_puts("OK");
 		Mode.direction = 0;
-		key = Stop;
+		Mode.key = OK;
 		return;
 	}
 	
@@ -605,17 +581,17 @@ void Regulator()
 	
 	if (difference > RangeDown && difference < RangeUp) 
 	{
-		if (key == Stop) return;
+		if (Mode.key == OK) return;
 		lcd_clrline(9, 0);
 		lcd_puts("OK");
 		Mode.direction = 0;
-		key = Stop;
+		Mode.key = OK;
 		return;
 	}
 	
 	if (difference >= RangeUp) 
 	{
-		if (key == Left)
+		if (Mode.key == Left)
 		{
 			Step(Left);
 			return;
@@ -625,11 +601,11 @@ void Regulator()
 		lcd_clrline(9, 0);
 		lcd_puts("Left");
 		Mode.direction = 1;
-		key = Left;
+		Mode.key = Left;
 	}
 	else 
 	{
-		if (key == Right)
+		if (Mode.key == Right)
 		{
 			Step(Right);
 			return;
@@ -639,7 +615,7 @@ void Regulator()
 		lcd_clrline(9, 0);
 		lcd_puts("Right");
 		Mode.direction = -1;
-		key = Right;
+		Mode.key = Right;
 	}
 }
 
@@ -817,7 +793,7 @@ void Receive()
 }
 
 int main(void)
-{
+{		
 	Initialization();
 	
 	while(1)
@@ -828,16 +804,19 @@ int main(void)
 		
 		if (MainTimer.ms992)
 		{
-			if (Mode.mode == Acceleration || Mode.mode == Process)
+			if (Mode.current == Acceleration || Mode.current == Process)
 			{
 				Calculation();
 				GetOneWireData();
 				DisplayPrint();
 				Transmit();
+				TCNT0 = 0;
+				TCNT1 = 0;
+				Measure.ovf = 0;
 			}
 			
 			if (Mode.count) Mode.count--;
-			if (Mode.mode == Acceleration) LedInv;
+			if (Mode.current == Acceleration) LedInv;
 			MainTimer.ms992 = 0;
 		}
 	}
