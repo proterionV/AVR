@@ -53,13 +53,13 @@
 #define Inside			32
 #define After			33
 
-#define Interval		5
+#define Interval		6
 #define AccelDelay		40
 #define TempBufferSize  20
 #define TxBufferSize	100
 #define RxBufferSize    250
-#define RangeUp			0.07
-#define RangeDown	   -0.07
+#define RangeUp			0.09
+#define RangeDown	   -0.09
 #define AArraySize		40
 #define PArraySize		40
 #define TArraySize		10
@@ -454,7 +454,7 @@ void Calculation()
 	
 	// 992 ms
 	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.10258, false); // (1000/992/50.f * 0.0848 * 60 = 0.10258
-	Measure.Fp = MovAvgPolyamide(TCNT1*0.19052, false); // 50 imp/rev // (1000/992/50.f * 0.1575 * 60 = 0.19052
+	Measure.Fp = MovAvgPolyamide(TCNT1*0.1907, false); // 50 imp/rev // (1000/992/50.f * 0.1575 * 60 = 0.19052
 
 	TCNT0 = 0;
 	TCNT1 = 0;
