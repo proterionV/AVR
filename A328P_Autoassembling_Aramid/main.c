@@ -48,15 +48,32 @@
 #define Waiting			22
 #define Process			33
 
+#define Before			30
+#define Between			31
+#define Inside			32
+#define After			33
+
 #define Interval		5
-#define AccelDelay		30
-#define TxBufferSize	50
-#define RangeUp			0.10
-#define RangeDown	   -0.10
-#define AArraySize		30
-#define PArraySize		30
+#define AccelDelay		40
+#define TempBufferSize  20
+#define TxBufferSize	100
+#define RxBufferSize    250
+#define RangeUp			0.07
+#define RangeDown	   -0.07
+#define AArraySize		40
+#define PArraySize		40
 #define TArraySize		10
 #define HArraySize		10
+
+#define NextLine		0x0A
+#define FillCell		0xFF
+#define Terminator		'$'
+#define Arrow			'>'
+#define Eraser			' '
+#define BufferEnd		'#'
+#define StringEnd		'\0'
+#define CR				'\r'
+#define LF				'\n'
 
 #include <xc.h>
 #include <avr/io.h>
@@ -87,7 +104,8 @@ volatile struct
 volatile struct
 {
 	unsigned short mode;
-	unsigned short count;		
+	unsigned short count;
+	short direction;		
 } Mode;
 
 volatile struct
@@ -95,6 +113,16 @@ volatile struct
 	unsigned char byte;
 	bool byteReceived;
 } Rx;
+
+volatile struct
+{
+	bool tryToConnect, connected;
+	bool receiving, handling;
+	bool building, sending;
+	bool reset;
+	unsigned short delay, timeout;
+	
+} Server;
 
 void Timer0(bool enable)
 {
@@ -205,7 +233,7 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char buffer[TxBufferSize] = { 0 }, aramid[20], polyamide[20], temperature[20], humidity[20];
+	static char buffer[TxBufferSize] = { 0 }, aramid[20], polyamide[20], temperature[20], humidity[20], direction[10];
 		
 	sprintf(aramid, "A%.2f$", Measure.Fa);
 	strcat(buffer, aramid);
@@ -219,6 +247,9 @@ void Transmit()
 	sprintf(humidity, "H%.1f$", Measure.humidity);
 	strcat(buffer, humidity);
 	
+	sprintf(direction, "D%d$", Mode.direction);
+	strcat(buffer, direction);
+	
 	TxString(buffer);
 	memset(buffer, 0, TxBufferSize);
 }
@@ -231,9 +262,9 @@ float MovAvgAramid(float value, bool reset)
 	
 	if (reset)
 	{
-		memset(values, 0, AArraySize);
 		result = 0;
 		index = 0;
+		memset(values, 0, AArraySize-1);
 		return 0;
 	}
 	
@@ -252,9 +283,9 @@ float MovAvgPolyamide(float value, bool reset)
 	
 	if (reset)
 	{
-		memset(values, 0, PArraySize);
 		result = 0;
 		index = 0;
+		memset(values, 0, PArraySize-1);
 		return 0;
 	}
 	
@@ -273,7 +304,6 @@ float MovAvgTemp(float value, bool reset)
 	
 	if (reset)
 	{
-		memset(values, 0, TArraySize);
 		result = 0;
 		index = 0;
 		return 0;
@@ -294,7 +324,6 @@ float MovAvgHum(float value, bool reset)
 	
 	if (reset)
 	{
-		memset(values, 0, HArraySize);
 		result = 0;
 		index = 0;
 		return 0;
@@ -382,7 +411,7 @@ void Initialization()
 	 lcd_clrscr();
 	 lcd_home();
 		
-	 lcd_clrline(9, 1);
+	 lcd_clrline(9, 0);
 	 lcd_puts("OK");
 	 DisplayPrint();
 	 
@@ -394,6 +423,9 @@ void Initialization()
 	 Measure.Fp = MovAvgPolyamide(0, true);
 	 Measure.temperature = MovAvgTemp(0, true);
 	 Measure.humidity = MovAvgHum(0, true);
+	 
+	 Server.tryToConnect = true;
+	 Server.delay = -1;
 	 
 	 USART(Init);
 	 Timer0(true);
@@ -412,16 +444,17 @@ void Calculation()
 	// t = 60 seconds
 	// in the same F and original sizes asm = -20
 	// Lp experimantal v1 = 0.1570 // 1.1775 // asm = +4
-	// Lp experimental v4 = 0.1572 // 1.1790 // asm =  ?
+	// Lp experimental v4 = 0.1572 // 1.1790 // asm = -3
 	// Lp experimental v3 = 0.1575 // 1,1812 // asm = -2
-	// Lp experimantal v2 = 0.1580 // 1.1850 // asm = -6
+	// Lp experimantal v2 = 0.1580 // 1.1850 // asm = -6 0.19113
 			
 	// 160 ms														   
 	//Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.636, false); // (6.25/50.f * 0.0848 * 60 = 0.636 
 	//Measure.Fp = MovAvgPolyamide(TCNT1*1.1790, false); // 50 imp/rev // (6.25/50.f * 0.161 * 60 = 1.2075 
 	
+	// 992 ms
 	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.10258, false); // (1000/992/50.f * 0.0848 * 60 = 0.10258
-	Measure.Fp = MovAvgPolyamide(TCNT1*0.19016, false); // 50 imp/rev // (1000/992/50.f * 0.1572 * 60 = 0.19016
+	Measure.Fp = MovAvgPolyamide(TCNT1*0.19052, false); // 50 imp/rev // (1000/992/50.f * 0.1575 * 60 = 0.19052
 
 	TCNT0 = 0;
 	TCNT1 = 0;
@@ -461,7 +494,7 @@ void Manual()
 	{
 		if (key == Stop) return;
 		
-		lcd_clrline(9, 1);
+		lcd_clrline(9, 0);
 		lcd_puts("OK");
 		key = Stop;
 		return;
@@ -471,7 +504,7 @@ void Manual()
 	{
 		if (key == Short) return;
 		
-		lcd_clrline(9, 1);
+		lcd_clrline(9, 0);
 		lcd_puts("Short");
 		key = Short;
 		return;
@@ -486,7 +519,7 @@ void Manual()
 		}
 		
 		Step(Right);
-		lcd_clrline(9, 1);
+		lcd_clrline(9, 0);
 		lcd_puts("Right");
 		key = Right;
 		return; 
@@ -501,7 +534,7 @@ void Manual()
 		}
 		
 		Step(Left);
-		lcd_clrline(9, 1);
+		lcd_clrline(9, 0);
 		lcd_puts("Left");
 		key = Left;
 		return;
@@ -548,13 +581,22 @@ void Regulator()
 	static unsigned short key = Stop;
 	static float difference = 0;
 	
-	if (RightOn || LeftOn) return; 
+	if (RightOn || LeftOn) 
+	{
+		if (key == Left || key == Right)
+		{
+			Mode.direction = 0;
+			key = Stop;
+		}
+		return; 
+	}
 	
 	if (Mode.mode == Waiting || Mode.mode == Acceleration) 
 	{
 		if (key == Stop) return;
-		lcd_clrline(9, 1);
+		lcd_clrline(9, 0);
 		lcd_puts("OK");
+		Mode.direction = 0;
 		key = Stop;
 		return;
 	}
@@ -564,8 +606,9 @@ void Regulator()
 	if (difference > RangeDown && difference < RangeUp) 
 	{
 		if (key == Stop) return;
-		lcd_clrline(9, 1);
+		lcd_clrline(9, 0);
 		lcd_puts("OK");
+		Mode.direction = 0;
 		key = Stop;
 		return;
 	}
@@ -579,8 +622,9 @@ void Regulator()
 		}
 		
 		Step(Left);
-		lcd_clrline(9, 1);
+		lcd_clrline(9, 0);
 		lcd_puts("Left");
+		Mode.direction = 1;
 		key = Left;
 	}
 	else 
@@ -592,9 +636,183 @@ void Regulator()
 		}
 		
 		Step(Right);
-		lcd_clrline(9, 1);
+		lcd_clrline(9, 0);
 		lcd_puts("Right");
+		Mode.direction = -1;
 		key = Right;
+	}
+}
+
+unsigned short GetDataSize(char *buffer)
+{
+	int count = 0;
+	
+	for (int i=0;i<100; i++)
+	{
+		if (buffer[i] == BufferEnd) break;
+		count++;
+	}
+	
+	return count;
+}
+
+void ConnectToServer(bool connect)
+{
+	Server.connected = false;
+	Server.tryToConnect = true;
+	if (connect) TxString("AT+CIPSTART=\"TCP\",\"192.168.43.108\",11000\r\n");
+	else TxString("AT+CIPCLOSE\r\n");
+	Server.receiving = true;
+	Server.delay++;
+}
+
+void TransmitToServer()
+{
+	static char buffer[TxBufferSize] = { 0 };
+	static char temp[TempBufferSize] = { 0 };
+	
+	if (Server.building)
+	{
+		char Command[TempBufferSize] = "AT+CIPSEND=";
+		
+		sprintf(temp, "A%.2f$", Measure.Fa);
+		strcat(buffer, temp);
+		
+		sprintf(temp, "P%.2f$", Measure.Fp);
+		strcat(buffer, temp);
+		
+		sprintf(temp, "T%.1f$", Measure.temperature);
+		strcat(buffer, temp);
+		
+		sprintf(temp, "H%.1f$", Measure.humidity);
+		strcat(buffer, temp);
+		
+		sprintf(temp, "D%d$", Mode.direction);
+		strcat(buffer, temp);
+		
+		sprintf(temp, "%d\r\n", GetDataSize(buffer));
+		strcat(Command, temp);
+		
+		TxString(Command);
+		
+		Server.building = false;
+		return;
+	}
+	
+	if (Server.sending)
+	{
+		TxString(buffer);
+		Server.sending = false;
+		memset(buffer, 0, TxBufferSize);
+	}
+}
+
+void Receive()
+{
+	static unsigned int charIndex = 0, wordIndex = 0, position = Before;
+	static char RxBuffer[RxBufferSize] = { 0 };
+	static char Response[10][80] = { 0 };
+	
+	if (Server.receiving)
+	{
+		RxBuffer[charIndex++] = Rx.byte;
+		return;
+	}
+	
+	if (Server.connected && !Server.receiving && !Server.handling)
+	{
+		RxBuffer[charIndex++] = Rx.byte;
+		Server.receiving = true;
+		Server.delay++;
+		return;
+	}
+	
+	if (charIndex < 1) return;
+	
+	RxBuffer[charIndex] = StringEnd;
+	wordIndex = 0;
+	charIndex = 0;
+	position = Before;
+	
+	for(int i=0; i<sizeof(RxBuffer); i++)
+	{
+		if (position == Before)
+		{
+			if (RxBuffer[i] == StringEnd) break;
+			if (RxBuffer[i] == CR || RxBuffer[i] == LF) continue;
+			position = Inside;
+			i--;
+		}
+		else if (position == Inside)
+		{
+			if (RxBuffer[i] == CR || RxBuffer[i] == LF)
+			{
+				Response[wordIndex][charIndex] = StringEnd;
+				position = Between;
+				charIndex = 0;
+				continue;
+			}
+			
+			Response[wordIndex][charIndex++] = RxBuffer[i];
+			if (RxBuffer[i] == StringEnd) position = After;
+			
+		}
+		else if (position == Between)
+		{
+			if (RxBuffer[i] == StringEnd) position = After;
+			if (RxBuffer[i] == CR || RxBuffer[i] == LF) continue;
+			position = Inside;
+			wordIndex++;
+			i--;
+		}
+		else
+		{
+			
+		}
+	}
+	
+	Server.timeout = 0;
+	charIndex = 0;
+	
+	if (!Server.connected && !strcasecmp(Response[1], "CONNECT") && !strcasecmp(Response[2], "OK"))
+	{
+		Server.connected = true;
+		Server.tryToConnect = false;
+		return;
+	}
+	
+	if (!strcasecmp(Response[1], "CLOSED") && !strcasecmp(Response[2], "OK"))
+	{
+		Server.connected = false;
+		return;
+	}
+	
+	if (!strcasecmp(Response[0], "CLOSED"))
+	{
+		Server.connected = false;
+		Server.tryToConnect = true;
+		return;
+	}
+	
+	for (int i=0; i<=wordIndex; i++)
+	{
+		if (!strcasecmp(Response[i], "ERROR"))
+		{
+
+			return;
+		}
+	}
+	
+	if (!strcasecmp(Response[0], "+IPD,3:Get"))
+	{
+		Server.building = true;
+		return;
+	}
+	
+	if (Response[2][0] == Arrow)
+	{
+		Server.sending = true;
+		return;
 	}
 }
 
