@@ -22,10 +22,10 @@
 #define LedOff		Low(PORTB, 5)
 #define LedInv		Inv(PORTB, 5)
 
-#define Stop		Check(PORTB, 4)
-#define StopOn		High(PORTB, 4)
-#define StopOff		Low(PORTB, 4)
-#define StopInv		Inv(PORTB, 4)
+#define Stop		Check(PORTB, 3)
+#define StopOn		High(PORTB, 3)
+#define StopOff		Low(PORTB, 3)
+#define StopInv		Inv(PORTB, 3)
 
 #define Pulse		Check(PORTD, 7)
 #define PulseOn		High(PORTD, 7)
@@ -60,12 +60,12 @@
 
 #define Interval		7
 #define AccelDelay		40
-#define AlarmDelay		60
+#define AlarmDelay		240
 #define TempBufferSize  20
 #define TxBufferSize	100
 #define RxBufferSize    250
-#define RangeUp			0.09
-#define RangeDown	   -0.09
+#define RangeUp			0.10
+#define RangeDown	   -0.10
 #define AArraySize		40
 #define PArraySize		40
 #define TArraySize		10
@@ -381,7 +381,7 @@ void DisplayPrint()
 
 void Initialization()
  {
-	 DDRB = 0b00100111;
+	 DDRB = 0b00101111;
 	 PORTB = 0b00000000;
 	 
 	 DDRC = 0b00111100;
@@ -402,7 +402,7 @@ void Initialization()
 	 Mode.current = Waiting;
 	 Mode.key = OK;
 	 Mode.count = 0;
-	 Mode.alarmCount = 0;
+	 Mode.alarmCount = AlarmDelay;
 	 Mode.alarm = false;
 	 
 	 Measure.Fa = 0;
@@ -441,7 +441,7 @@ void Calculation()
 	
 	// 992 ms
 	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.10258); // (1000/992/50.f * 0.0848 * 60 = 0.10258
-	Measure.Fp = MovAvgPolyamide(TCNT1*0.1907); // 50 imp/rev // (1000/992/50.f * 0.1575 * 60 = 0.19052
+	Measure.Fp = MovAvgPolyamide(TCNT1*0.19088); // 50 imp/rev // (1000/992/50.f * 0.1575 * 60 = 0.19052
 }
 
 void Step(unsigned short direction)
@@ -530,6 +530,7 @@ void ModeControl()
 		{
 			Mode.count = AccelDelay;
 			Mode.current = Acceleration;
+			Mode.alarmCount = AlarmDelay;
 			Mode.alarm = false;
 			lcd_clrline(10, 1);
 			USART(TxOn);
@@ -591,7 +592,6 @@ void Regulator()
 		lcd_clrline(9, 0);
 		lcd_puts("OK");
 		Mode.direction = 0;
-		Mode.alarm = false;
 		Mode.key = OK;
 		return;
 	}
@@ -824,17 +824,15 @@ int main(void)
 		
 		if (MainTimer.ms992)
 		{
-			if (Mode.current == Acceleration || Mode.current == Process)
+			if (Mode.current == Process)
 			{
 				Calculation();
 				GetOneWireData();
 				DisplayPrint();
 				Transmit();
-				TCNT0 = 0;
-				TCNT1 = 0;
-				Measure.ovf = 0;
-				if (Mode.current == Process && Mode.key != OK) Mode.alarmCount--;
-				if (!Mode.alarmCount)
+
+				if (Mode.key != OK && Mode.alarmCount > 0 && !Mode.alarm) Mode.alarmCount--;
+				if (!Mode.alarmCount && !Mode.alarm)
 				{
 					StopOn;
 					Mode.alarm = true;
@@ -843,6 +841,10 @@ int main(void)
 			
 			if (Mode.count) Mode.count--;
 			if (Mode.current == Acceleration) LedInv;
+			
+			TCNT0 = 0;
+			TCNT1 = 0;
+			Measure.ovf = 0;
 			MainTimer.ms992 = 0;
 		}
 	}
