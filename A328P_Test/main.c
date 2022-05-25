@@ -555,9 +555,13 @@ void SendToServer()
 
 void Step()
 {
+	//ImpOn;
+	//_delay_us(1900); // 1 level
+	//ImpOff;
+	
 	ImpOn;
-	_delay_ms(20);
-	ImpOff;		
+	_delay_ms(4);
+	ImpOff;
 }
 
 int main(void)
