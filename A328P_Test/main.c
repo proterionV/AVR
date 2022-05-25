@@ -34,8 +34,12 @@
 #define RxBufferSize 100
 #define TxBufferSize 100
 
-#define DDSOut	 (Check(PORTD, 7))
-#define DDSOutInv Inv(PORTD, 7)
+//#define DDSOut	 (Check(PORTD, 7))
+//#define DDSOutInv Inv(PORTD, 7)
+
+#define ImpOn  Low(PORTD, 7)
+#define ImpOff High(PORTD, 7)
+#define ImpInv Inv(PORTD, 7)
 
 #define ServoUp		 High(PORTB, 1)
 #define	ServoDown 	 Low(PORTB, 1)
@@ -176,7 +180,7 @@ ISR(TIMER2_OVF_vect)
 	
 	if (DDS.accum >= ACCUM_MAXIMUM)
 	{
-		DDSOutInv;
+		//DDSOutInv;
 		DDS.accum -= ACCUM_MAXIMUM;
 	}
 }
@@ -549,6 +553,13 @@ void SendToServer()
 	TxString(frequency);
 }
 
+void Step()
+{
+	ImpOn;
+	_delay_ms(20);
+	ImpOff;		
+}
+
 int main(void)
 {
 	DDRB = 0b00111110;
@@ -558,12 +569,12 @@ int main(void)
 	PORTC = 0b11000000;
 	
 	DDRD = 0b11000010;
-	PORTD = 0b00000011;
+	PORTD = 0b10000011;
 	
-	lcd_init(LCD_DISP_ON);
-	lcd_led(false);
-	lcd_clrscr();
-	lcd_home();
+	//lcd_init(LCD_DISP_ON);
+	//lcd_led(false);
+	//lcd_clrscr();
+	//lcd_home();
 	
 	Timer0(false);
 	Timer1(Counter);
@@ -571,6 +582,9 @@ int main(void)
 	USART(Off);
 	Converter(Off);
 	sei();
+	
+	LedOff;
+	ImpOff;
 	
 	while(1)
 	{
@@ -582,12 +596,14 @@ int main(void)
 		
 		if (MainTimer.isr)
 		{
+			Step();
 			MainTimer.ms40++;
 			MainTimer.isr = false;
 		}
 		
 		if (MainTimer.ms200)
 		{
+			
 			MainTimer.ms200 = 0;
 		}
 		
@@ -595,7 +611,7 @@ int main(void)
 		{
 			LedInv;
 			MainTimer.sec++;
-			DisplayPrint();
+			//DisplayPrint();
 			if (MainTimer.sec >= 59) MainTimer.sec = 0;
 			MainTimer.ms1000 = 0;
 		}
