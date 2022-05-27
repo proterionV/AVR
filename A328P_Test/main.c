@@ -23,6 +23,9 @@
 #define Forward  0
 #define Backyard 1
 
+#define Left  0
+#define Right 1
+
 #define Init 2
 #define On	 1
 #define Off  0
@@ -37,13 +40,16 @@
 //#define DDSOut	 (Check(PORTD, 7))
 //#define DDSOutInv Inv(PORTD, 7)
 
-#define ImpOn  Low(PORTD, 7)
-#define ImpOff High(PORTD, 7)
+#define ImpOn  High(PORTD, 7)
+#define ImpOff Low(PORTD, 7)
 #define ImpInv Inv(PORTD, 7)
 
 #define ServoUp		 High(PORTB, 1)
 #define	ServoDown 	 Low(PORTB, 1)
 #define ServoCommand (Check(PINC, 0))
+
+#define Active		(!Check(PIND, 2))
+#define RightOn		(!Check(PIND, 3))
 
 #define Counter	0
 #define Oscillator 1
@@ -553,15 +559,22 @@ void SendToServer()
 	TxString(frequency);
 }
 
-void Step()
+void Step(short direction)
 {
-	//ImpOn;
-	//_delay_us(1900); // 1 level
-	//ImpOff;
-	
 	ImpOn;
-	_delay_ms(4);
+	if (direction) _delay_us(500);
+	else _delay_ms(4);
 	ImpOff;
+	_delay_ms(4);
+}
+
+void Control()
+{
+	if (!Active) return;
+	
+	if (RightOn) { Step(Right);	return; }
+	
+	Step(Left);
 }
 
 int main(void)
@@ -573,7 +586,7 @@ int main(void)
 	PORTC = 0b11000000;
 	
 	DDRD = 0b11000010;
-	PORTD = 0b10000011;
+	PORTD = 0b10011111;
 	
 	//lcd_init(LCD_DISP_ON);
 	//lcd_led(false);
@@ -592,6 +605,8 @@ int main(void)
 	
 	while(1)
 	{
+		Control();
+		
 		if (Rx.byteReceived)
 		{
 			Receive();
@@ -600,7 +615,7 @@ int main(void)
 		
 		if (MainTimer.isr)
 		{
-			Step();
+			
 			MainTimer.ms40++;
 			MainTimer.isr = false;
 		}

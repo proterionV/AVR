@@ -428,20 +428,13 @@ void Calculation()
 	// q = 50 imp/rev for both impellers
 	// La aramid roll D = 0.027 m, L = 0.0848 m (measured)
 	// Lp polyamide roll D = 0.0512 m, L = 0.161 m (calculated)	
+	// Lp experimantal = 0.1578 
 	// t = 60 seconds
 	// in the same F and original sizes asm = -20
-	// Lp experimantal v1 = 0.1570 // 1.1775 // asm = +4
-	// Lp experimental v4 = 0.1572 // 1.1790 // asm = -3
-	// Lp experimental v3 = 0.1575 // 1,1812 // asm = -2
-	// Lp experimantal v2 = 0.1580 // 1.1850 // asm = -6 0.19113
-			
-	// 160 ms														   
-	//Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.636, false); // (6.25/50.f * 0.0848 * 60 = 0.636 
-	//Measure.Fp = MovAvgPolyamide(TCNT1*1.1790, false); // 50 imp/rev // (6.25/50.f * 0.161 * 60 = 1.2075 
 	
 	// 992 ms
-	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.10258); // (1000/992/50.f * 0.0848 * 60 = 0.10258
-	Measure.Fp = MovAvgPolyamide(TCNT1*0.19088); // 50 imp/rev // (1000/992/50.f * 0.1575 * 60 = 0.19052
+	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.10258); // (1.2096774 * 0.0848 = 0.10258
+	Measure.Fp = MovAvgPolyamide(TCNT1*0.19088); // 50 imp/rev // (1.2096774 * 0.1578 = 0.19052
 }
 
 void Step(unsigned short direction)
