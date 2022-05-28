@@ -58,14 +58,14 @@
 #define Inside			32
 #define After			33
 
-#define Interval		7
+#define Interval		6
 #define AccelDelay		40
 #define AlarmDelay		240
 #define TempBufferSize  20
 #define TxBufferSize	100
 #define RxBufferSize    250
-#define RangeUp			0.10
-#define RangeDown	   -0.10
+#define RangeUp			0.09
+#define RangeDown	   -0.09
 #define AArraySize		40
 #define PArraySize		40
 #define TArraySize		10
@@ -374,8 +374,8 @@ void DisplayPrint()
 	
 	if (Mode.alarm) 
 	{
-		lcd_clrline(10, 1);
-		lcd_puts("alarm");
+		lcd_clrline(9, 1);
+		lcd_puts("Alarm");
 	}
 }
 
@@ -428,13 +428,11 @@ void Calculation()
 	// q = 50 imp/rev for both impellers
 	// La aramid roll D = 0.027 m, L = 0.0848 m (measured)
 	// Lp polyamide roll D = 0.0512 m, L = 0.161 m (calculated)	
-	// Lp experimantal = 0.1578 
+	// Lp experimantal = 0.1579 
 	// t = 60 seconds
-	// in the same F and original sizes asm = -20
 	
-	// 992 ms
 	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.10258); // (1.2096774 * 0.0848 = 0.10258
-	Measure.Fp = MovAvgPolyamide(TCNT1*0.19088); // 50 imp/rev // (1.2096774 * 0.1578 = 0.19052
+	Measure.Fp = MovAvgPolyamide(TCNT1*0.191008); // 50 imp/rev // (1.2096774 * 0.1579 = 0.19052
 }
 
 void Step(unsigned short direction)
@@ -525,7 +523,7 @@ void ModeControl()
 			Mode.current = Acceleration;
 			Mode.alarmCount = AlarmDelay;
 			Mode.alarm = false;
-			lcd_clrline(10, 1);
+			lcd_clrline(9, 1);
 			USART(TxOn);
 			Timer0(true);
 			Timer1(true);
