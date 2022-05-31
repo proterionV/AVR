@@ -59,15 +59,15 @@
 #define After			33
 
 #define Interval		6
-#define AccelDelay		40
-#define AlarmDelay		240
+#define AccelDelay		10
+#define AlarmDelay		1800
 #define TempBufferSize  20
 #define TxBufferSize	100
 #define RxBufferSize    250
 #define RangeUp			0.09
 #define RangeDown	   -0.09
-#define AArraySize		40
-#define PArraySize		40
+#define AArraySize		50
+#define PArraySize		50
 #define TArraySize		10
 #define HArraySize		10
 
@@ -110,7 +110,7 @@ volatile struct
 volatile struct
 {
 	unsigned short current;
-	unsigned short count, alarmCount;
+	unsigned int count, alarmCount;
 	unsigned short key;
 	short direction;
 	bool alarm;		
@@ -414,7 +414,7 @@ void Initialization()
 	 Server.delay = -1;
 	 
 	 DisplayPrint();
-	 USART(Init);
+	 //USART(Init);
 	 Timer2(true);
 	 sei();
 	 StopOff;
@@ -524,7 +524,7 @@ void ModeControl()
 			Mode.alarmCount = AlarmDelay;
 			Mode.alarm = false;
 			lcd_clrline(9, 1);
-			USART(TxOn);
+			//USART(TxOn);
 			Timer0(true);
 			Timer1(true);
 			return;
@@ -542,7 +542,7 @@ void ModeControl()
 	if (Mode.current == Waiting) return;
 	
 	PulseOff;
-	USART(Off);
+	//USART(Off);
 	Timer0(false);
 	Timer1(false);
 	
@@ -818,9 +818,9 @@ int main(void)
 			if (Mode.current == Process)
 			{
 				Calculation();
-				GetOneWireData();
+				//GetOneWireData();
 				DisplayPrint();
-				Transmit();
+				//Transmit();
 
 				if (Mode.key != OK && Mode.alarmCount > 0 && !Mode.alarm) Mode.alarmCount--;
 				if (!Mode.alarmCount && !Mode.alarm)

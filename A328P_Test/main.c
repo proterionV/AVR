@@ -40,8 +40,10 @@
 //#define DDSOut	 (Check(PORTD, 7))
 //#define DDSOutInv Inv(PORTD, 7)
 
-#define ImpOn  High(PORTD, 7)
-#define ImpOff Low(PORTD, 7)
+#define ImpOn  Low(PORTD, 7)
+#define ImpOff High(PORTD, 7)
+//#define ImpOn  High(PORTD, 7)
+//#define ImpOff Low(PORTD, 7)
 #define ImpInv Inv(PORTD, 7)
 
 #define ServoUp		 High(PORTB, 1)
@@ -51,8 +53,8 @@
 #define Active		(!Check(PIND, 2))
 #define RightOn		(!Check(PIND, 3))
 
-#define Counter	0
-#define Oscillator 1
+#define Counter		0
+#define Oscillator  1
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -562,10 +564,10 @@ void SendToServer()
 void Step(short direction)
 {
 	ImpOn;
-	if (direction) _delay_us(500);
+	if (direction) _delay_us(800);
 	else _delay_ms(4);
 	ImpOff;
-	_delay_ms(4);
+	_delay_ms(40);
 }
 
 void Control()
@@ -575,6 +577,24 @@ void Control()
 	if (RightOn) { Step(Right);	return; }
 	
 	Step(Left);
+}
+
+void Control2()
+{
+	if (!Active) return;
+	
+	if (RightOn)
+	{
+		ImpOn;
+		_delay_us(200);
+		ImpOff;
+		_delay_ms(70);
+		return;
+	}
+
+	ImpOn;
+	_delay_ms(70);
+	ImpOff;
 }
 
 int main(void)
@@ -604,9 +624,7 @@ int main(void)
 	ImpOff;
 	
 	while(1)
-	{
-		Control();
-		
+	{	
 		if (Rx.byteReceived)
 		{
 			Receive();
@@ -615,7 +633,7 @@ int main(void)
 		
 		if (MainTimer.isr)
 		{
-			
+			Control2();
 			MainTimer.ms40++;
 			MainTimer.isr = false;
 		}
