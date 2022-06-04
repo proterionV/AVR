@@ -40,10 +40,10 @@
 //#define DDSOut	 (Check(PORTD, 7))
 //#define DDSOutInv Inv(PORTD, 7)
 
-#define ImpOn  Low(PORTD, 7)
-#define ImpOff High(PORTD, 7)
-//#define ImpOn  High(PORTD, 7)
-//#define ImpOff Low(PORTD, 7)
+//#define ImpOn  Low(PORTD, 7)
+//#define ImpOff High(PORTD, 7)
+#define ImpOn  High(PORTD, 7)
+#define ImpOff Low(PORTD, 7)
 #define ImpInv Inv(PORTD, 7)
 
 #define ServoUp		 High(PORTB, 1)
@@ -564,17 +564,17 @@ void SendToServer()
 void Step(short direction)
 {
 	ImpOn;
-	if (direction) _delay_us(800);
+	if (direction) _delay_us(400);
 	else _delay_ms(4);
 	ImpOff;
-	_delay_ms(40);
+	_delay_ms(4);
 }
 
 void Control()
 {
-	if (!Active) return;
+	//if (!Active) return;
 	
-	if (RightOn) { Step(Right);	return; }
+	//if (RightOn) { Step(Right);	return; }
 	
 	Step(Left);
 }
@@ -595,6 +595,12 @@ void Control2()
 	ImpOn;
 	_delay_ms(70);
 	ImpOff;
+}
+
+void Control3()
+{
+	ImpInv;
+	_delay_us(2500);
 }
 
 int main(void)
@@ -625,6 +631,8 @@ int main(void)
 	
 	while(1)
 	{	
+		Control();
+		
 		if (Rx.byteReceived)
 		{
 			Receive();
@@ -633,7 +641,7 @@ int main(void)
 		
 		if (MainTimer.isr)
 		{
-			Control2();
+
 			MainTimer.ms40++;
 			MainTimer.isr = false;
 		}
@@ -652,5 +660,5 @@ int main(void)
 			if (MainTimer.sec >= 59) MainTimer.sec = 0;
 			MainTimer.ms1000 = 0;
 		}
-	}
+	}								  
 }
