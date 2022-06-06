@@ -64,8 +64,11 @@
 #define TempBufferSize  20
 #define TxBufferSize	100
 #define RxBufferSize    250
-#define RangeUp			0.09
-#define RangeDown	   -0.09
+//#define RangeUp		0.09	  // for regulator with difference approach
+//#define RangeDown		-0.09
+#define RangeUp			0.005	   // for regulator with ratio approach
+#define RangeDown		-0.005
+#define Overfeed		0.1
 #define AArraySize		50
 #define PArraySize		50
 #define TArraySize		10
@@ -573,7 +576,7 @@ void ModeControl()
 
 void Regulator()
 {
-	static float difference = 0;
+	static float difference = 0, ratio = 0;
 	
 	if (RightOn || LeftOn) return; 
 	
@@ -587,7 +590,8 @@ void Regulator()
 		return;
 	}
 	
-	difference = Measure.Fa - Measure.Fp;
+	ratio = 1 - (Measure.Fa / Measure.Fp);
+	difference = Overfeed - ratio;
 	
 	if (difference > RangeDown && difference < RangeUp) 
 	{
