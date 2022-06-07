@@ -97,12 +97,6 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="dht\dht.c">
-      <SubType>compile</SubType>
-    </Compile>
-    <Compile Include="dht\dht.h">
-      <SubType>compile</SubType>
-    </Compile>
     <Compile Include="lcd\lcd.c">
       <SubType>compile</SubType>
     </Compile>
@@ -115,7 +109,6 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="lcd" />
-    <Folder Include="dht" />
   </ItemGroup>
   <Import Project="$(AVRSTUDIO_EXE_PATH)\\Vs\\Compiler.targets" />
 </Project>

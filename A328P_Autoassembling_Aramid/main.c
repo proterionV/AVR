@@ -36,14 +36,6 @@
 #define LeftOn		(!Check(PIND, 3))
 #define Active		(!Check(PIND, 6))
 
-#define Init	 0
-#define On		 1
-#define Off		 2
-#define TxOn	 3
-#define TxOff	 4
-#define RxOn	 5
-#define RxOff	 6
-
 #define Right	 		10
 #define Left 			20
 #define OK				30
@@ -53,36 +45,17 @@
 #define Waiting			22
 #define Process			33
 
-#define Before			30
-#define Between			31
-#define Inside			32
-#define After			33
-
-#define Interval		6
+#define IntervalR		6
+#define IntervalL		2
 #define AccelDelay		10
 #define AlarmDelay		1800
-#define TempBufferSize  20
-#define TxBufferSize	100
-#define RxBufferSize    250
-//#define RangeUp		0.09	  // for regulator with difference approach
-//#define RangeDown		-0.09
-#define RangeUp			0.005	   // for regulator with ratio approach
-#define RangeDown		-0.005
-#define Overfeed		0.1
+#define RangeUp			0.004	   // for regulator with ratio approach
+#define RangeDown		-0.004
+#define Overfeed		0
 #define AArraySize		50
 #define PArraySize		50
 #define TArraySize		10
 #define HArraySize		10
-
-#define NextLine		0x0A
-#define FillCell		0xFF
-#define Terminator		'$'
-#define Arrow			'>'
-#define Eraser			' '
-#define BufferEnd		'#'
-#define StringEnd		'\0'
-#define CR				'\r'
-#define LF				'\n'
 
 #include <xc.h>
 #include <avr/io.h>
@@ -97,7 +70,6 @@
 #include <stdbool.h>
 #include <util/delay.h>
 #include "lcd/lcd.h"
-#include "dht/dht.h"
 
 volatile struct
 {
@@ -107,7 +79,7 @@ volatile struct
 volatile struct
 {
 	unsigned int ovf;
-	float Fa, Fp, temperature, humidity;
+	float Fa, Fp, ratio;
 } Measure;
 
 volatile struct
@@ -118,21 +90,6 @@ volatile struct
 	short direction;
 	bool alarm;		
 } Mode;
-
-volatile struct
-{
-	unsigned char byte;
-	bool byteReceived;
-} Rx;
-
-volatile struct
-{
-	bool tryToConnect, connected;
-	bool receiving, handling;
-	bool building, sending;
-	bool reset;
-	unsigned short delay, timeout;	
-} Server;
 
 void Timer0(bool enable)
 {
@@ -194,76 +151,6 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 5;
 }
 
-void USART(unsigned short option)
-{
-	switch (option)
-	{
-		case TxOn:
-			UCSR0B |= (1 << TXEN0);
-			break;
-		case TxOff:
-			UCSR0B &= (0 << TXEN0);
-			break;
-		case RxOn:
-			UCSR0B |= (1 << RXEN0) | (1 << RXCIE0);
-			break;
-		case RxOff:
-			UCSR0B &= (0 << RXEN0) | (0 << RXCIE0);
-			break;
-		case On:
-			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
-			break;
-		case Off:
-			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-			break;
-		default:
-			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-			UBRR0  =  3;
-			break;
-	}
-}
-
-ISR(USART_RX_vect)
-{
-	Rx.byte = UDR0;
-	Rx.byteReceived++;
-}
-
-void TxChar(unsigned char c)
-{
-	while (!(UCSR0A & (1<<UDRE0)));
-	UDR0 = c;
-}
-
-void TxString(const char* s)
-{
-	for (int i=0; s[i]; i++) TxChar(s[i]);
-}
-
-void Transmit()
-{
-	static char buffer[TxBufferSize] = { 0 }, aramid[20], polyamide[20], temperature[20], humidity[20], direction[10];
-		
-	sprintf(aramid, "A%.2f$", Measure.Fa);
-	strcat(buffer, aramid);
-	
-	sprintf(polyamide, "P%.2f$", Measure.Fp);
-	strcat(buffer, polyamide);
-	
-	sprintf(temperature, "T%.1f$", Measure.temperature);
-	strcat(buffer, temperature);
-	
-	sprintf(humidity, "H%.1f$", Measure.humidity);
-	strcat(buffer, humidity);
-	
-	sprintf(direction, "D%d$", Mode.direction);
-	strcat(buffer, direction);
-	
-	TxString(buffer);
-	memset(buffer, 0, TxBufferSize);
-}
-
 void EraseUnits(int x, int y, int offset, float count)
 {
 	char eraser = 32;
@@ -322,50 +209,9 @@ float MovAvgPolyamide(float value)
 	return result/PArraySize;
 }
 
-float MovAvgTemp(float value)
-{
-	static unsigned short index = 0;
-	static float values[TArraySize];
-	static float result;
-	
-	result += value - values[index];
-	values[index] = value;
-	index = (index + 1) % TArraySize;
-	
-	return result/TArraySize;
-}
-
-float MovAvgHum(float value)
-{
-	static unsigned short index = 0;
-	static float values[HArraySize];
-	static float result;
-	
-	result += value - values[index];
-	values[index] = value;
-	index = (index + 1) % HArraySize;
-	
-	return result/HArraySize;
-}
-
-void GetOneWireData()
-{
-	static float temperature, humidity;
-	
-	if (dht_gettemperaturehumidity(&temperature, &humidity) != -1)
-	{
-		Measure.temperature = MovAvgTemp(temperature);
-		Measure.humidity = MovAvgHum(humidity);
-		return;
-	}
-	
-	Measure.temperature = MovAvgTemp(-1);
-	Measure.humidity = MovAvgHum(-1);
-}
-
 void DisplayPrint()
 {
-	static char A[20] = { 0 }, P[20] = { 0 };
+	static char A[20] = { 0 }, P[20] = { 0 }, R[20] = { 0 };
 	 
 	EraseUnits(0, 0, 3, Measure.Fa);
 	sprintf(A, "%.2f", Measure.Fa < 0 ? 0 : Measure.Fa);
@@ -375,10 +221,14 @@ void DisplayPrint()
 	sprintf(P, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
 	lcd_puts(P);
 	
+	EraseUnits(9, 1, 1, Measure.ratio);
+	sprintf(R, "%.3f", Measure.ratio);
+	lcd_puts(R);
+	
 	if (Mode.alarm) 
 	{
-		lcd_clrline(9, 1);
-		lcd_puts("Alarm");
+		lcd_clrline(15, 1);
+		lcd_puts("A");
 	}
 }
 
@@ -393,7 +243,6 @@ void Initialization()
 	 DDRD = 0b10000000;
 	 PORTD = 0b01111111;
 	 
-	 LedOn;
 	 lcd_init(LCD_DISP_ON);
 	 lcd_clrscr();
 	 lcd_home();
@@ -410,18 +259,12 @@ void Initialization()
 	 
 	 Measure.Fa = 0;
 	 Measure.Fp = 0;
-	 Measure.temperature = 0;
-	 Measure.humidity = 0;
-	 
-	 Server.tryToConnect = true;
-	 Server.delay = -1;
+	 Measure.ratio = 0;
 	 
 	 DisplayPrint();
-	 //USART(Init);
 	 Timer2(true);
 	 sei();
 	 StopOff;
-	 LedOff;
  }
 
 void Calculation()
@@ -449,18 +292,18 @@ void Step(unsigned short direction)
 			_delay_us(200);
 			PulseOff;
 			_delay_ms(70);
+			MainTimer.interval = IntervalR;
 			break;
 		case Left:
 			PulseOn;
 			_delay_ms(70);
 			PulseOff;
+			MainTimer.interval = IntervalL;
 			break;
 		default:
 			PulseOff;
 			break;	
-	}
-	
-	MainTimer.interval = Interval;	 
+	}	 
 }
 
 void Manual()
@@ -527,25 +370,18 @@ void ModeControl()
 			Mode.alarmCount = AlarmDelay;
 			Mode.alarm = false;
 			lcd_clrline(9, 1);
-			//USART(TxOn);
 			Timer0(true);
 			Timer1(true);
 			return;
 		}
 		
-		if (Mode.current == Acceleration && !Mode.count) 
-		{	
-			LedOn;							 
-			Mode.current = Process;		
-		}
-		
+		if (Mode.current == Acceleration && !Mode.count) Mode.current = Process;		
 		return;
 	}
 	
 	if (Mode.current == Waiting) return;
 	
 	PulseOff;
-	//USART(Off);
 	Timer0(false);
 	Timer1(false);
 	
@@ -553,12 +389,6 @@ void ModeControl()
 	{
 		MovAvgAramid(0);
 		MovAvgPolyamide(0);
-		
-		if (i < 10) 
-		{
-			MovAvgTemp(0);
-			MovAvgHum(0);
-		}	
 	}
 	
 	TCNT0 = 0;
@@ -566,17 +396,15 @@ void ModeControl()
 	Mode.current = Waiting;
 	Measure.Fa = 0;
 	Measure.Fp = 0;
-	Measure.temperature = 0;
-	Measure.humidity = 0;
+	Measure.ratio = 0;
 	Measure.ovf = 0;
 	DisplayPrint();	
 	StopOff;
-	LedOff;	
 }
 
 void Regulator()
 {
-	static float difference = 0, ratio = 0;
+	static float difference = 0;
 	
 	if (RightOn || LeftOn) return; 
 	
@@ -590,8 +418,8 @@ void Regulator()
 		return;
 	}
 	
-	ratio = 1 - (Measure.Fa / Measure.Fp);
-	difference = Overfeed - ratio;
+	Measure.ratio = 1 - (Measure.Fa / Measure.Fp);
+	difference = Overfeed - Measure.ratio;
 	
 	if (difference > RangeDown && difference < RangeUp) 
 	{
@@ -634,179 +462,6 @@ void Regulator()
 	}
 }
 
-unsigned short GetDataSize(char *buffer)
-{
-	int count = 0;
-	
-	for (int i=0;i<100; i++)
-	{
-		if (buffer[i] == BufferEnd) break;
-		count++;
-	}
-	
-	return count;
-}
-
-void ConnectToServer(bool connect)
-{
-	Server.connected = false;
-	Server.tryToConnect = true;
-	if (connect) TxString("AT+CIPSTART=\"TCP\",\"192.168.43.108\",11000\r\n");
-	else TxString("AT+CIPCLOSE\r\n");
-	Server.receiving = true;
-	Server.delay++;
-}
-
-void TransmitToServer()
-{
-	static char buffer[TxBufferSize] = { 0 };
-	static char temp[TempBufferSize] = { 0 };
-	
-	if (Server.building)
-	{
-		char Command[TempBufferSize] = "AT+CIPSEND=";
-		
-		sprintf(temp, "A%.2f$", Measure.Fa);
-		strcat(buffer, temp);
-		
-		sprintf(temp, "P%.2f$", Measure.Fp);
-		strcat(buffer, temp);
-		
-		sprintf(temp, "T%.1f$", Measure.temperature);
-		strcat(buffer, temp);
-		
-		sprintf(temp, "H%.1f$", Measure.humidity);
-		strcat(buffer, temp);
-		
-		sprintf(temp, "D%d$", Mode.direction);
-		strcat(buffer, temp);
-		
-		sprintf(temp, "%d\r\n", GetDataSize(buffer));
-		strcat(Command, temp);
-		
-		TxString(Command);
-		
-		Server.building = false;
-		return;
-	}
-	
-	if (Server.sending)
-	{
-		TxString(buffer);
-		Server.sending = false;
-		memset(buffer, 0, TxBufferSize);
-	}
-}
-
-void Receive()
-{
-	static unsigned int charIndex = 0, wordIndex = 0, position = Before;
-	static char RxBuffer[RxBufferSize] = { 0 };
-	static char Response[10][80] = { 0 };
-	
-	if (Server.receiving)
-	{
-		RxBuffer[charIndex++] = Rx.byte;
-		return;
-	}
-	
-	if (Server.connected && !Server.receiving && !Server.handling)
-	{
-		RxBuffer[charIndex++] = Rx.byte;
-		Server.receiving = true;
-		Server.delay++;
-		return;
-	}
-	
-	if (charIndex < 1) return;
-	
-	RxBuffer[charIndex] = StringEnd;
-	wordIndex = 0;
-	charIndex = 0;
-	position = Before;
-	
-	for(int i=0; i<sizeof(RxBuffer); i++)
-	{
-		if (position == Before)
-		{
-			if (RxBuffer[i] == StringEnd) break;
-			if (RxBuffer[i] == CR || RxBuffer[i] == LF) continue;
-			position = Inside;
-			i--;
-		}
-		else if (position == Inside)
-		{
-			if (RxBuffer[i] == CR || RxBuffer[i] == LF)
-			{
-				Response[wordIndex][charIndex] = StringEnd;
-				position = Between;
-				charIndex = 0;
-				continue;
-			}
-			
-			Response[wordIndex][charIndex++] = RxBuffer[i];
-			if (RxBuffer[i] == StringEnd) position = After;
-			
-		}
-		else if (position == Between)
-		{
-			if (RxBuffer[i] == StringEnd) position = After;
-			if (RxBuffer[i] == CR || RxBuffer[i] == LF) continue;
-			position = Inside;
-			wordIndex++;
-			i--;
-		}
-		else
-		{
-			
-		}
-	}
-	
-	Server.timeout = 0;
-	charIndex = 0;
-	
-	if (!Server.connected && !strcasecmp(Response[1], "CONNECT") && !strcasecmp(Response[2], "OK"))
-	{
-		Server.connected = true;
-		Server.tryToConnect = false;
-		return;
-	}
-	
-	if (!strcasecmp(Response[1], "CLOSED") && !strcasecmp(Response[2], "OK"))
-	{
-		Server.connected = false;
-		return;
-	}
-	
-	if (!strcasecmp(Response[0], "CLOSED"))
-	{
-		Server.connected = false;
-		Server.tryToConnect = true;
-		return;
-	}
-	
-	for (int i=0; i<=wordIndex; i++)
-	{
-		if (!strcasecmp(Response[i], "ERROR"))
-		{
-
-			return;
-		}
-	}
-	
-	if (!strcasecmp(Response[0], "+IPD,3:Get"))
-	{
-		Server.building = true;
-		return;
-	}
-	
-	if (Response[2][0] == Arrow)
-	{
-		Server.sending = true;
-		return;
-	}
-}
-
 int main(void)
 {		
 	Initialization();
@@ -819,12 +474,12 @@ int main(void)
 		
 		if (MainTimer.ms992)
 		{
+			LedInv;
+			
 			if (Mode.current == Process)
 			{
 				Calculation();
-				//GetOneWireData();
 				DisplayPrint();
-				//Transmit();
 
 				if (Mode.key != OK && Mode.alarmCount > 0 && !Mode.alarm) Mode.alarmCount--;
 				if (!Mode.alarmCount && !Mode.alarm)
@@ -835,7 +490,6 @@ int main(void)
 			}
 			
 			if (Mode.count) Mode.count--;
-			if (Mode.current == Acceleration) LedInv;
 			
 			TCNT0 = 0;
 			TCNT1 = 0;
