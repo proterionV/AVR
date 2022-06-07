@@ -19,8 +19,13 @@
 #define ImpOff Low(PORTD, 7)
 #define ImpInv Inv(PORTD, 7)
 
+#define DirInv	(!Check(PIND, 2)) 
+
 #define Counter 1
 #define Off		0
+
+#define Right 2
+#define Left  3
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -147,10 +152,10 @@ void Initialization(const char* name)
 void Step(short direction)
 {
 	ImpOn;
-	if (direction) _delay_us(400);
-	else _delay_ms(4);
+	if (direction == Left)  _delay_us(200);
+	if (direction == Right) _delay_ms(4);
 	ImpOff;
-	_delay_ms(4);
+	_delay_ms(5);
 }
 
 int main(void)
@@ -159,6 +164,9 @@ int main(void)
 	
     while(1)
     {
+		if (DirInv) Step(Left);
+		else Step(Right);
+		
         if (MainTimer.ms992)
         {
 			LedInv;
