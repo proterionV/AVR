@@ -45,8 +45,8 @@
 #define Waiting			22
 #define Process			33
 
-#define IntervalR		6
-#define IntervalL		2
+#define IntervalR		7
+#define IntervalL		3
 #define AccelDelay		10
 #define AlarmDelay		1800
 #define RangeUp			0.004	   // for regulator with ratio approach
@@ -221,8 +221,8 @@ void DisplayPrint()
 	sprintf(P, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
 	lcd_puts(P);
 	
-	EraseUnits(9, 1, 1, Measure.ratio);
-	sprintf(R, "%.3f", Measure.ratio);
+	EraseUnits(8, 1, 1, Measure.ratio*100);
+	sprintf(R, "%.1f", Measure.ratio*100);
 	lcd_puts(R);
 	
 	if (Mode.alarm) 
@@ -468,7 +468,7 @@ int main(void)
 	
 	while(1)
 	{
-		Manual();
+		//Manual();
 		ModeControl();
 		Regulator();
 		

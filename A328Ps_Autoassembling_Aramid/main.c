@@ -152,10 +152,10 @@ void Initialization(const char* name)
 void Step(short direction)
 {
 	ImpOn;
-	if (direction == Left)  _delay_us(200);
+	if (direction == Left)  _delay_us(400);
 	if (direction == Right) _delay_ms(4);
 	ImpOff;
-	_delay_ms(5);
+	_delay_ms(4);
 }
 
 int main(void)
