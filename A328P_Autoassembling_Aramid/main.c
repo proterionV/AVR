@@ -8,6 +8,14 @@
 /*
   Frequency comparer with counter inputs
   IR Receiver with continue receive will be down after 530 ms
+  
+  // F = (k / q) * L * t = X m/s
+  // k = 1000 ms / 160 ms = 6.25 (measure during 160 ms)
+  // q = 50 imp/rev for both impellers
+  // La aramid roll D = 0.027 m, L = 0.0848 m (measured)
+  // Lp polyamide roll D = 0.0512 m, L = 0.161 m (calculated)
+  // Lp experimantal = 0.1579
+  // t = 60 seconds
 */
 
 #define F_CPU	16000000L
@@ -85,7 +93,6 @@ volatile struct
 	unsigned short current;
 	unsigned int count, alarmCount;
 	unsigned short key;
-	short direction;
 	bool alarm;		
 } Mode;
 
@@ -145,7 +152,7 @@ ISR(TIMER2_OVF_vect)
 		MainTimer.ms992++;
 		MainTimer.ms16 = 0;
 	}
-	
+
 	TCNT2 = 5;
 }
 
@@ -219,12 +226,12 @@ void DisplayPrint()
 	sprintf(Vp, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
 	lcd_puts(Vp);
 	
-	EraseUnits(6, 0, 1, Measure.Lp);
-	sprintf(La, "%.1f", Measure.Lp);
+	EraseUnits(6, 0, 1, Measure.La);
+	sprintf(La, "%.1f", Measure.La);
 	lcd_puts(La);
 	
-	EraseUnits(6, 1, 1, Measure.La);
-	sprintf(Lp, "%.1f", Measure.La);
+	EraseUnits(6, 1, 1, Measure.Lp);
+	sprintf(Lp, "%.1f", Measure.Lp);
 	lcd_puts(Lp);
 	
 	if (Mode.alarm) 
@@ -273,13 +280,6 @@ void Initialization()
 void Calculation()
 {
 	float a, p = 0;
-	// F = (k / q) * L * t = X m/s
-	// k = 1000 ms / 160 ms = 6.25 (measure during 160 ms) 
-	// q = 50 imp/rev for both impellers
-	// La aramid roll D = 0.027 m, L = 0.0848 m (measured)
-	// Lp polyamide roll D = 0.0512 m, L = 0.161 m (calculated)	
-	// Lp experimantal = 0.1579 
-	// t = 60 seconds
 	
 	a = ((255.f*Measure.ovf)+TCNT0)*0.001709568;
 	p =	TCNT1*0.003183264;
@@ -317,7 +317,7 @@ void Step(unsigned short direction)
 void Step2(short direction)
 {
 	PulseOn;
-	if (direction == Left)  _delay_us(400);
+	if (direction == Left)  _delay_us(600);
 	if (direction == Right) _delay_ms(4);
 	PulseOff;
 	_delay_ms(4);
@@ -431,7 +431,6 @@ void Regulator()
 		if (Mode.key == OK) return;
 		//lcd_clrline(9, 0);
 		//lcd_puts("OK");
-		Mode.direction = 0;
 		Mode.key = OK;
 		return;
 	}
@@ -445,7 +444,6 @@ void Regulator()
 		if (Mode.alarmCount < AlarmDelay) Mode.alarmCount = AlarmDelay;
 		//lcd_clrline(9, 0);
 		//lcd_puts("OK");
-		Mode.direction = 0;
 		Mode.key = OK;
 		return;
 	}
@@ -461,7 +459,6 @@ void Regulator()
 		Step(Left);
 		//lcd_clrline(9, 0);
 		//lcd_puts("Left");
-		Mode.direction = 1;
 		Mode.key = Left;
 	}
 	else 
@@ -475,7 +472,6 @@ void Regulator()
 		Step(Right);
 		//lcd_clrline(9, 0);
 		//lcd_puts("Right");
-		Mode.direction = -1;
 		Mode.key = Right;
 	}
 }
