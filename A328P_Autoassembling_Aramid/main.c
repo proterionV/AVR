@@ -47,25 +47,23 @@
 
 #define IntervalR		7
 #define IntervalL		3
-#define AccelDelay		10
+#define AccelDelay		40
 #define AlarmDelay		1800
-#define RangeUp			0.004	   // for regulator with ratio approach
+#define RangeUp			0.004
 #define RangeDown		-0.004
-#define Overfeed		0
-#define AArraySize		50
-#define PArraySize		50
+#define AArraySize		30
+#define PArraySize		30
 #define TArraySize		10
 #define HArraySize		10
+#define Overfeed		0
 
 #include <xc.h>
 #include <avr/io.h>
-#include <avr/eeprom.h>
 #include <avr/interrupt.h>
 #include <float.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
-#include <string.h>
 #include <math.h>
 #include <stdbool.h>
 #include <util/delay.h>
@@ -79,7 +77,7 @@ volatile struct
 volatile struct
 {
 	unsigned int ovf;
-	float Fa, Fp, ratio;
+	float Fa, Fp, La, Lp;
 } Measure;
 
 volatile struct
@@ -211,19 +209,23 @@ float MovAvgPolyamide(float value)
 
 void DisplayPrint()
 {
-	static char A[20] = { 0 }, P[20] = { 0 }, R[20] = { 0 };
+	static char Va[20] = { 0 }, Vp[20] = { 0 }, La[20] = { 0 }, Lp[20] = { 0 };
 	 
 	EraseUnits(0, 0, 3, Measure.Fa);
-	sprintf(A, "%.2f", Measure.Fa < 0 ? 0 : Measure.Fa);
-	lcd_puts(A);
+	sprintf(Va, "%.2f", Measure.Fa < 0 ? 0 : Measure.Fa);
+	lcd_puts(Va);
 	
 	EraseUnits(0, 1, 3, Measure.Fp);
-	sprintf(P, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
-	lcd_puts(P);
+	sprintf(Vp, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
+	lcd_puts(Vp);
 	
-	EraseUnits(8, 1, 1, Measure.ratio*100);
-	sprintf(R, "%.1f", Measure.ratio*100);
-	lcd_puts(R);
+	EraseUnits(6, 0, 1, Measure.Lp);
+	sprintf(La, "%.1f", Measure.Lp);
+	lcd_puts(La);
+	
+	EraseUnits(6, 1, 1, Measure.La);
+	sprintf(Lp, "%.1f", Measure.La);
+	lcd_puts(Lp);
 	
 	if (Mode.alarm) 
 	{
@@ -247,8 +249,8 @@ void Initialization()
 	 lcd_clrscr();
 	 lcd_home();
 	 
-	 lcd_clrline(9, 0);
-	 lcd_puts("OK");
+	 //lcd_clrline(9, 0);
+	 //lcd_puts("OK");
 	 
 	 PulseOff;
 	 Mode.current = Waiting;
@@ -257,9 +259,10 @@ void Initialization()
 	 Mode.alarmCount = AlarmDelay;
 	 Mode.alarm = false;
 	 
+	 Measure.La = 0;
+	 Measure.Lp = 0;
 	 Measure.Fa = 0;
 	 Measure.Fp = 0;
-	 Measure.ratio = 0;
 	 
 	 DisplayPrint();
 	 Timer2(true);
@@ -269,6 +272,7 @@ void Initialization()
 
 void Calculation()
 {
+	float a, p = 0;
 	// F = (k / q) * L * t = X m/s
 	// k = 1000 ms / 160 ms = 6.25 (measure during 160 ms) 
 	// q = 50 imp/rev for both impellers
@@ -277,8 +281,12 @@ void Calculation()
 	// Lp experimantal = 0.1579 
 	// t = 60 seconds
 	
-	Measure.Fa = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.10258); // (1.2096774 * 0.0848 = 0.10258
-	Measure.Fp = MovAvgPolyamide(TCNT1*0.191008); // 50 imp/rev // (1.2096774 * 0.1579 = 0.19052
+	a = ((255.f*Measure.ovf)+TCNT0)*0.001709568;
+	p =	TCNT1*0.003183264;
+	Measure.La += a;
+	Measure.Lp += p;
+	Measure.Fa = MovAvgAramid(a*60); // (1.2096774 * 0.0848 = 0.10258
+	Measure.Fp = MovAvgPolyamide(p*60); // 50 imp/rev // (1.2096774 * 0.1579 = 0.19052
 }
 
 void Step(unsigned short direction)
@@ -304,6 +312,15 @@ void Step(unsigned short direction)
 			PulseOff;
 			break;	
 	}	 
+}
+
+void Step2(short direction)
+{
+	PulseOn;
+	if (direction == Left)  _delay_us(400);
+	if (direction == Right) _delay_ms(4);
+	PulseOff;
+	_delay_ms(4);
 }
 
 void Manual()
@@ -332,11 +349,11 @@ void Manual()
 	{ 
 		if (Mode.key == Right) 
 		{
-			Step(Right);
+			Step2(Right);
 			return;
 		}
 		
-		Step(Right);
+		Step2(Right);
 		lcd_clrline(9, 0);
 		lcd_puts("Right");
 		Mode.key = Right;
@@ -347,11 +364,11 @@ void Manual()
 	{
 		if (Mode.key == Left)
 		{
-			Step(Left);
+			Step2(Left);
 			return;
 		}
 		
-		Step(Left);
+		Step2(Left);
 		lcd_clrline(9, 0);
 		lcd_puts("Left");
 		Mode.key = Left;
@@ -365,11 +382,12 @@ void ModeControl()
 	{
 		if (Mode.current == Waiting)
 		{
+			Measure.La = 0;
+			Measure.Lp = 0;
 			Mode.count = AccelDelay;
 			Mode.current = Acceleration;
 			Mode.alarmCount = AlarmDelay;
 			Mode.alarm = false;
-			lcd_clrline(9, 1);
 			Timer0(true);
 			Timer1(true);
 			return;
@@ -394,9 +412,9 @@ void ModeControl()
 	TCNT0 = 0;
 	TCNT1 = 0;
 	Mode.current = Waiting;
+	
 	Measure.Fa = 0;
 	Measure.Fp = 0;
-	Measure.ratio = 0;
 	Measure.ovf = 0;
 	DisplayPrint();	
 	StopOff;
@@ -404,29 +422,29 @@ void ModeControl()
 
 void Regulator()
 {
-	static float difference = 0;
+	static float difference = 0, ratio = 0;
 	
-	if (RightOn || LeftOn) return; 
+	//if (RightOn || LeftOn) return; 
 	
 	if (Mode.current == Waiting || Mode.current == Acceleration) 
 	{
 		if (Mode.key == OK) return;
-		lcd_clrline(9, 0);
-		lcd_puts("OK");
+		//lcd_clrline(9, 0);
+		//lcd_puts("OK");
 		Mode.direction = 0;
 		Mode.key = OK;
 		return;
 	}
 	
-	Measure.ratio = 1 - (Measure.Fa / Measure.Fp);
-	difference = Overfeed - Measure.ratio;
+	ratio = 1 - ((Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp));
+	difference = Overfeed - ratio;
 	
 	if (difference > RangeDown && difference < RangeUp) 
 	{
 		if (Mode.key == OK) return;
 		if (Mode.alarmCount < AlarmDelay) Mode.alarmCount = AlarmDelay;
-		lcd_clrline(9, 0);
-		lcd_puts("OK");
+		//lcd_clrline(9, 0);
+		//lcd_puts("OK");
 		Mode.direction = 0;
 		Mode.key = OK;
 		return;
@@ -441,8 +459,8 @@ void Regulator()
 		}
 		
 		Step(Left);
-		lcd_clrline(9, 0);
-		lcd_puts("Left");
+		//lcd_clrline(9, 0);
+		//lcd_puts("Left");
 		Mode.direction = 1;
 		Mode.key = Left;
 	}
@@ -455,8 +473,8 @@ void Regulator()
 		}
 		
 		Step(Right);
-		lcd_clrline(9, 0);
-		lcd_puts("Right");
+		//lcd_clrline(9, 0);
+		//lcd_puts("Right");
 		Mode.direction = -1;
 		Mode.key = Right;
 	}
@@ -468,15 +486,15 @@ int main(void)
 	
 	while(1)
 	{
-		//Manual();
 		ModeControl();
-		Regulator();
+		
+		if (Mode.current == Process) Regulator();
 		
 		if (MainTimer.ms992)
-		{
+		{	
 			LedInv;
 			
-			if (Mode.current == Process)
+			if (Mode.current == Process || Mode.current == Acceleration)
 			{
 				Calculation();
 				DisplayPrint();
