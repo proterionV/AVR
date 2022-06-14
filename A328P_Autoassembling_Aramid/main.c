@@ -53,14 +53,14 @@
 #define Waiting			22
 #define Process			33
 
-#define IntervalR		7
-#define IntervalL		3
+#define IntervalR		9
+#define IntervalL		4
 #define AccelDelay		40
 #define AlarmDelay		1800
-#define RangeUp			0.004
-#define RangeDown		-0.004
-#define AArraySize		30
-#define PArraySize		30
+#define RangeUp			0.005
+#define RangeDown		-0.005
+#define AArraySize		35
+#define PArraySize		35
 #define TArraySize		10
 #define HArraySize		10
 #define Overfeed		0
