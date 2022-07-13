@@ -6,7 +6,7 @@
  */ 
 
 #define F_CPU	16000000L
-#define Spindle	7
+#define Spindle	10
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
@@ -47,8 +47,8 @@
 #define AvgArraySize    35
 #define IntervalR		9
 #define IntervalL		4
-#define AccelDelay		5
-#define FaultDelay		30
+#define AccelDelay		40
+#define FaultDelay		1200
 #define RangeUp			0.005
 #define RangeDown		-0.005
 #define Overfeed		0
