@@ -564,7 +564,7 @@ void SendToServer()
 void Step(short direction)
 {
 	ImpOn;
-	if (direction) _delay_us(400);
+	if (direction) _delay_us(800);
 	else _delay_ms(4);
 	ImpOff;
 	_delay_ms(4);
@@ -574,7 +574,7 @@ void Control()
 {
 	//if (!Active) return;
 	
-	//if (RightOn) { Step(Right);	return; }
+	if (Active) { Step(Right);	return; }
 	
 	Step(Left);
 }
@@ -655,6 +655,7 @@ int main(void)
 		if (MainTimer.ms1000)
 		{
 			LedInv;
+			ImpInv;
 			MainTimer.sec++;
 			//DisplayPrint();
 			if (MainTimer.sec >= 59) MainTimer.sec = 0;

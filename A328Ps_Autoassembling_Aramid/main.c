@@ -6,31 +6,31 @@
  */ 
 
 #define F_CPU	16000000L
-#define Spindle	10
+#define Spindle	3
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= (0<<BIT))
 
-#define Aramid		Check(PIND, 4)
-#define Polyamide   Check(PIND, 5)
-#define Working		Check(PIND, 6)
-
 #define Fault		Check(PORTB, 0)
 #define FaultOn		High(PORTB, 0)
 #define FaultOff	Low(PORTB, 0)
 #define FaultInv	Inv(PORTB, 0)
 
-#define Imp			Check(PORTB, 1)
-#define ImpOn		High(PORTB, 1)
-#define ImpOff		Low(PORTB, 1)
-#define ImpInv		Inv(PORTB, 1)
-
 #define Led			Check(PORTB, 5)
 #define LedOn		High(PORTB, 5)
 #define LedOff		Low(PORTB, 5)
 #define LedInv		Inv(PORTB, 5)
+
+ #define Imp		Check(PORTC, 0)
+ #define ImpOn		High(PORTC, 0)
+ #define ImpOff		Low(PORTC, 0)
+ #define ImpInv		Inv(PORTC, 0)
+ 
+ #define Aramid		Check(PIND, 4)
+ #define Polyamide  Check(PIND, 5)
+ #define Working	Check(PIND, 6)
 
 #define Off				0
 #define InternalCounter 1
@@ -42,11 +42,13 @@
 
 #define Right	 		10
 #define Left 			20
-#define Stop			30 
+#define Stop			30
 
 #define AvgArraySize    35
-#define IntervalR		9
-#define IntervalL		4
+#define HighIntervalR	1
+#define LowIntervalR	-0
+#define HighIntervalL	1
+#define LowIntervalL 	-0
 #define AccelDelay		40
 #define FaultDelay		1200
 #define RangeUp			0.005
@@ -66,7 +68,9 @@
 
 volatile struct
 {
-	unsigned int ms16, ms992;
+	unsigned short ms16;
+	signed short interval;
+	bool interrupt16, interrupt992;
 } MainTimer;
 
 volatile struct
@@ -83,6 +87,12 @@ volatile struct
 	unsigned int fuse;
 	bool fault;
 } Mode;
+
+volatile struct
+{
+	bool ready;
+	bool permission;	
+} Signal;
 
 void Timer0(unsigned short mode)
 {
@@ -133,10 +143,11 @@ void Timer2(unsigned short mode)
 ISR(TIMER2_OVF_vect)
 {	
 	MainTimer.ms16++;
-	
+	MainTimer.interrupt16 = true;
+
 	if (MainTimer.ms16 >= 62)
 	{
-		MainTimer.ms992++;
+		MainTimer.interrupt992 = true;
 		MainTimer.ms16 = 0;
 	}
 	
@@ -184,10 +195,9 @@ void Initialization()
 	PORTC = 0b11000000;
 	
 	DDRD = 0b00000001;
-	PORTD = 0b00000011;
+	PORTD = 0b00110011;
 	
 	MainTimer.ms16 = 0;
-	MainTimer.ms992 = 0;
 	
 	Measure.Ua = 0;
 	Measure.Up = 0;
@@ -251,11 +261,27 @@ void Control()
 
 void Step(short direction)
 {
-	ImpOn;
-	if (direction == Left)  _delay_ms(1); // 1 ms
-	if (direction == Right) _delay_ms(2); // 2 ms
+	if (!Signal.permission || MainTimer.interval < 0) return;
+	
+	switch (direction)
+	{
+		case Right:
+			ImpOn;
+			_delay_ms(1);
+			if (!MainTimer.interval) MainTimer.interval = HighIntervalR;
+			break;
+		case Left:
+			ImpOn;
+			_delay_ms(2);
+			if (!MainTimer.interval) MainTimer.interval = HighIntervalL;
+			break;
+		default:
+			ImpOff;
+			break;
+	}
+	
 	ImpOff;
-	_delay_ms(1); // 1 ms
+	_delay_ms(1);
 }
 
 void Regulator()
@@ -277,6 +303,9 @@ void Regulator()
 		if (Mode.operation == Stop) return;
 		if (Mode.fuse < FaultDelay) Mode.fuse = FaultDelay;
 		Mode.operation = Stop;
+		Signal.ready = false;
+		Signal.permission = false;
+		MainTimer.interval = 0;
 		FaultOff;
 		return;
 	}
@@ -289,7 +318,7 @@ void Regulator()
 			return;
 		}
 		
-		Step(Left);
+		Signal.ready = true;
 		Mode.operation = Left;
 	}
 	else
@@ -300,10 +329,62 @@ void Regulator()
 			return;
 		}
 		
-		Step(Right);
+		Signal.ready = true;
 		Mode.operation = Right;
 	}
 }
+
+void InterruptMS16()
+{
+	if (MainTimer.interrupt16)
+	{
+		MainTimer.interrupt16 = false;
+		if (Signal.permission)
+		{
+			if (MainTimer.interval < 0) MainTimer.interval++;
+			
+			if (MainTimer.interval > 0)
+			{
+				MainTimer.interval--;
+				if (!MainTimer.interval)
+				{
+					if (Mode.operation == Right) MainTimer.interval = LowIntervalR;
+					if (Mode.operation == Left) MainTimer.interval = LowIntervalL;
+				}
+			}
+		}
+		
+		if (!Signal.permission && Signal.ready) Signal.permission = true;
+	}	
+}
+
+void InterruptMS992()
+{
+	if (MainTimer.interrupt992)
+	{
+		LedInv;
+		
+		if (Mode.current == Process || Mode.current == Acceleration)
+		{
+			Calculation();
+
+			if (Mode.operation != Stop && Mode.fuse && !Mode.fault) Mode.fuse--;
+			
+			if (!Mode.fuse && !Mode.fault)
+			{
+				FaultOn;
+				Mode.fault = true;
+			}
+		}
+		
+		if (Mode.delay) Mode.delay--;
+		
+		TCNT0 = 0;
+		TCNT1 = 0;
+		Measure.ovf = 0;
+		MainTimer.interrupt992 = false;
+	}	
+};
 
 int main(void)
 {
@@ -313,30 +394,7 @@ int main(void)
     {
 		Control();
 		Regulator();
-		
-        if (MainTimer.ms992)
-        {	
-			LedInv;
-					
-			if (Mode.current == Process || Mode.current == Acceleration)
-			{
-				Calculation();
-
-				if (Mode.operation != Stop && Mode.fuse && !Mode.fault) Mode.fuse--;
-				
-				if (!Mode.fuse && !Mode.fault)
-				{
-					FaultOn;
-					Mode.fault = true;
-				}
-			}
-			
-			if (Mode.delay) Mode.delay--;
-			
-			TCNT0 = 0;
-			TCNT1 = 0;
-			Measure.ovf = 0;
-		    MainTimer.ms992 = 0;
-        } 
+		InterruptMS16();
+        InterruptMS992();
     }
 }
