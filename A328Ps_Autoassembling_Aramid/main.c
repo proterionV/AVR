@@ -23,14 +23,14 @@
 #define LedOff		Low(PORTB, 5)
 #define LedInv		Inv(PORTB, 5)
 
- #define Imp		Check(PORTC, 0)	// control pulses of motor
- #define ImpOn		High(PORTC, 0)
- #define ImpOff		Low(PORTC, 0)
- #define ImpInv		Inv(PORTC, 0)
+#define Imp			Check(PORTC, 0)	// control pulses of motor
+#define ImpOn		High(PORTC, 0)
+#define ImpOff		Low(PORTC, 0)
+#define ImpInv		Inv(PORTC, 0)
  
- #define Aramid		Check(PIND, 4) // aramid speed pulses input
- #define Polyamide  Check(PIND, 5) // polyamide speed pulses input
- #define Working	Check(PIND, 6) // spindle start input
+#define Aramid		Check(PIND, 4) // aramid speed pulses input
+#define Polyamide   Check(PIND, 5) // polyamide speed pulses input
+#define Working		Check(PIND, 6) // spindle run input
 
 #define Off				0
 #define InternalCounter 1
@@ -44,7 +44,7 @@
 #define Left 			20
 #define Stop			30
 
-// these parameters also should be positioned in rom
+// these parameters also should be positioned in ROM
 #define AvgArraySize    35		// Size of array to calculate average
 #define HighIntervalR	1		// count 16 ms period of generation to right rotation
 #define LowIntervalR	-0		// count 16 ms period of prohibited generation to right
@@ -82,11 +82,9 @@ volatile struct
 
 volatile struct
 {
-	unsigned short operation;
-	unsigned short current;
-	unsigned int delay;
-	unsigned int fuse;
-	bool fault;
+	unsigned short operation, current;
+	unsigned int delay, fuse;
+	bool fault, run;
 } Mode;
 
 volatile struct
@@ -216,7 +214,7 @@ void Initialization()
 
 void Control()
 {
-	if (Working)
+	if (Mode.run)
 	{
 		if (Mode.current == Process) return;
 		
@@ -375,6 +373,15 @@ void InterruptMS992()
 		}
 		
 		if (Mode.delay) Mode.delay--;
+		
+		if (Working)
+		{
+			if (!Mode.run) Mode.run == true;
+		}
+		else
+		{
+			if (Mode.run) Mode.run = false;
+		}
 		
 		TCNT0 = 0;
 		TCNT1 = 0;

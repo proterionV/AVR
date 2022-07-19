@@ -53,10 +53,10 @@
 #define Waiting			22
 #define Process			33
 
-#define IntervalR		10
-#define IntervalL		5
+#define IntervalR		9
+#define IntervalL		6
 #define AccelDelay		40
-#define AlarmDelay		1800
+#define AlarmDelay		600
 #define RangeUp			0.005
 #define RangeDown		-0.005
 #define AArraySize		35
@@ -93,7 +93,7 @@ volatile struct
 	unsigned short current;
 	unsigned int count, alarmCount;
 	unsigned short key;
-	bool alarm;		
+	bool alarm, run;		
 } Mode;
 
 void Timer0(bool enable)
