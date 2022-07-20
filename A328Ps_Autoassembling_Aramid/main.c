@@ -6,7 +6,7 @@
  */ 
 
 #define F_CPU	16000000L
-#define Spindle	3		  // order number device = order number of spindle, can use as address of device, it should be positioned in RAM
+#define Spindle	6		  // order number device = order number of spindle, can use as address of device, it should be positioned in RAM
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
@@ -30,7 +30,7 @@
  
 #define Aramid		Check(PIND, 4) // aramid speed pulses input
 #define Polyamide   Check(PIND, 5) // polyamide speed pulses input
-#define Working		Check(PIND, 6) // spindle run input
+#define Running		Check(PIND, 6) // spindle run input
 
 #define Off				0
 #define InternalCounter 1
@@ -71,20 +71,25 @@ volatile struct
 {
 	unsigned short ms16;
 	signed short interval;
-	bool interrupt16, interrupt992;
+	bool interrupt16;
+	bool interrupt992;
 } MainTimer;
 
 volatile struct
 {
 	unsigned int ovf;
-	float Ua, Up;
+	float Ua;
+	float Up;
 } Measure;
 
 volatile struct
 {
-	unsigned short operation, current;
-	unsigned int delay, fuse;
-	bool fault, run;
+	unsigned short operation;
+	unsigned short current;
+	unsigned int delay;
+	unsigned int fuse;
+	bool fault;
+	bool run;
 } Mode;
 
 volatile struct
@@ -93,9 +98,9 @@ volatile struct
 	bool permission;	
 } Signal;
 
-void Timer0(unsigned short mode)
-{
-	if (mode == ExternalCounter)
+void Timer0(unsigned short func)
+{			  
+	if (func == ExternalCounter)
 	{
 		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);
 		TIMSK0 = (1 << TOIE0);
@@ -113,9 +118,9 @@ ISR(TIMER0_OVF_vect)
 	Measure.ovf++;
 }
 
-void Timer1(unsigned short mode)
+void Timer1(unsigned short func)
 {
-	if (mode == ExternalCounter)
+	if (func == ExternalCounter)
 	{
 		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);
 		return;
@@ -124,9 +129,9 @@ void Timer1(unsigned short mode)
 	TCCR1B = (0 << CS12)|(0 << CS11)|(0 << CS10);
 }
 
-void Timer2(unsigned short mode)
+void Timer2(unsigned short func)
 {
-	if (mode == InternalCounter)
+	if (func == InternalCounter)
 	{
 		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);
 		TIMSK2 = (1 << TOIE2);
@@ -197,61 +202,26 @@ void Initialization()
 	PORTD = 0b00110011;
 	
 	MainTimer.ms16 = 0;
+	MainTimer.interval = 0;
+	MainTimer.interrupt16 = false;
+	MainTimer.interrupt992 = false;
 	
 	Measure.Ua = 0;
 	Measure.Up = 0;
 	Measure.ovf = 0;
 	
+	Mode.run = false;
 	Mode.fault = false;
 	Mode.current = Waiting;
 	Mode.fuse = FaultDelay;
-	Mode.delay = AccelDelay;
+	Mode.delay = 0;
 	Mode.operation = Stop;
+	
+	Signal.ready = false;
+	Signal.permission = false;
 	
 	Timer2(InternalCounter);
 	sei();
-}
-
-void Control()
-{
-	if (Mode.run)
-	{
-		if (Mode.current == Process) return;
-		
-		if (Mode.current == Waiting)
-		{
-			FaultOff;
-			Mode.delay = AccelDelay;
-			Mode.current = Acceleration;
-			Mode.fuse = FaultDelay;
-			Mode.fault = false;
-			Timer0(ExternalCounter);
-			Timer1(ExternalCounter);
-			return;
-		}
-		
-		if (Mode.current == Acceleration && !Mode.delay) Mode.current = Process;
-		return;
-	}
-	
-	if (Mode.current == Waiting) return;
-	
-	ImpOff;
-	Timer0(Off);
-	Timer1(Off);
-	
-	for (int i = 0; i<AvgArraySize; i++)
-	{
-		MovAvgAramid(0);
-		MovAvgPolyamide(0);
-	}
-	
-	TCNT0 = 0;
-	TCNT1 = 0;
-	Measure.Ua = 0;
-	Measure.Up = 0;
-	Measure.ovf = 0;
-	Mode.current = Waiting;
 }
 
 void Step(short direction)
@@ -278,6 +248,49 @@ void Step(short direction)
 	ImpOff;
 	_delay_ms(1);
 }
+
+void Control()
+ {
+	 if (Mode.run)
+	 {
+		 if (Mode.current == Process) return;
+		 
+		 if (Mode.current == Waiting)
+		 {
+			 LedOn;
+			 FaultOff;
+			 Mode.delay = AccelDelay;
+			 Mode.current = Acceleration;
+			 Mode.fuse = FaultDelay;
+			 Mode.fault = false;
+			 Timer0(ExternalCounter);
+			 Timer1(ExternalCounter);
+			 return;
+		 }
+		 
+		 if (Mode.current == Acceleration && !Mode.delay) Mode.current = Process;
+		 return;
+	 }
+	 
+	 if (Mode.current == Waiting) return;
+	 
+	 ImpOff;
+	 Timer0(Off);
+	 Timer1(Off);
+	 
+	 for (int i = 0; i<AvgArraySize; i++)
+	 {
+		 MovAvgAramid(0);
+		 MovAvgPolyamide(0);
+	 }
+	 
+	 TCNT0 = 0;
+	 TCNT1 = 0;
+	 Measure.Ua = 0;
+	 Measure.Up = 0;
+	 Measure.ovf = 0;
+	 Mode.current = Waiting;
+ }
 
 void Regulator()
 {
@@ -356,9 +369,7 @@ void InterruptMS16()
 void InterruptMS992()
 {
 	if (MainTimer.interrupt992)
-	{
-		LedInv;
-		
+	{			
 		if (Mode.current == Process || Mode.current == Acceleration)
 		{
 			Calculation();
@@ -370,22 +381,16 @@ void InterruptMS992()
 				FaultOn;
 				Mode.fault = true;
 			}
+			
+			TCNT0 = 0;
+			TCNT1 = 0;
+			Measure.ovf = 0;
 		}
+		else LedInv;
 		
 		if (Mode.delay) Mode.delay--;
-		
-		if (Working)
-		{
-			if (!Mode.run) Mode.run == true;
-		}
-		else
-		{
-			if (Mode.run) Mode.run = false;
-		}
-		
-		TCNT0 = 0;
-		TCNT1 = 0;
-		Measure.ovf = 0;
+		if (Running && !Mode.run) { LedOn; Mode.run == true; }
+		if (!Running && Mode.run) Mode.run = false;
 		MainTimer.interrupt992 = false;
 	}	
 };
