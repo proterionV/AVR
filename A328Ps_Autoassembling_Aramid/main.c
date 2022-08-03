@@ -6,7 +6,7 @@
  */ 
 
 #define F_CPU	16000000L
-#define Spindle	6		  // order number device = order number of spindle, can use as address of device, it should be positioned in RAM
+#define Spindle	7		  // order number device = order number of spindle, can use as address of device, it should be positioned in RAM
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
@@ -232,12 +232,12 @@ void Step(short direction)
 	{
 		case Right:
 			ImpOn;
-			_delay_ms(1);
+			_delay_us(400);
 			if (!MainTimer.interval) MainTimer.interval = HighIntervalR;
 			break;
 		case Left:
 			ImpOn;
-			_delay_ms(2);
+			_delay_ms(5);
 			if (!MainTimer.interval) MainTimer.interval = HighIntervalL;
 			break;
 		default:
@@ -246,7 +246,7 @@ void Step(short direction)
 	}
 	
 	ImpOff;
-	_delay_ms(1);
+	_delay_ms(5);
 }
 
 void Control()

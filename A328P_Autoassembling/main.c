@@ -945,7 +945,7 @@ int main(void)
 		if (MainTimer.ms160)
 		{
 			CheckRanges();
-			Converter(On);
+			//Converter(On);
 			//Transmit();
 			MainTimer.ms160 = 0;
 		}

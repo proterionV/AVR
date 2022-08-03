@@ -53,8 +53,8 @@
 #define Waiting			22
 #define Process			33
 
-#define IntervalR		9
-#define IntervalL		6
+#define IntervalR		11
+#define IntervalL		7
 #define AccelDelay		40
 #define AlarmDelay		600
 #define RangeUp			0.005
@@ -85,7 +85,7 @@ volatile struct
 volatile struct
 {
 	unsigned int ovf;
-	float Fa, Fp, La, Lp;
+	float Fa, Fp;
 } Measure;
 
 volatile struct
@@ -216,7 +216,7 @@ float MovAvgPolyamide(float value)
 
 void DisplayPrint()
 {
-	static char Va[20] = { 0 }, Vp[20] = { 0 }, La[20] = { 0 }, Lp[20] = { 0 };
+	static char Va[20] = { 0 }, Vp[20] = { 0 };
 	 
 	EraseUnits(0, 0, 3, Measure.Fa);
 	sprintf(Va, "%.2f", Measure.Fa < 0 ? 0 : Measure.Fa);
@@ -225,14 +225,6 @@ void DisplayPrint()
 	EraseUnits(0, 1, 3, Measure.Fp);
 	sprintf(Vp, "%.2f", Measure.Fp < 0 ? 0 : Measure.Fp);
 	lcd_puts(Vp);
-	
-	EraseUnits(6, 0, 1, Measure.La);
-	sprintf(La, "%.1f", Measure.La);
-	lcd_puts(La);
-	
-	EraseUnits(6, 1, 1, Measure.Lp);
-	sprintf(Lp, "%.1f", Measure.Lp);
-	lcd_puts(Lp);
 	
 	if (Mode.alarm) 
 	{
@@ -256,9 +248,6 @@ void Initialization()
 	 lcd_clrscr();
 	 lcd_home();
 	 
-	 //lcd_clrline(9, 0);
-	 //lcd_puts("OK");
-	 
 	 PulseOff;
 	 Mode.current = Waiting;
 	 Mode.key = OK;
@@ -266,8 +255,6 @@ void Initialization()
 	 Mode.alarmCount = AlarmDelay;
 	 Mode.alarm = false;
 	 
-	 Measure.La = 0;
-	 Measure.Lp = 0;
 	 Measure.Fa = 0;
 	 Measure.Fp = 0;
 	 
@@ -283,8 +270,6 @@ void Calculation()
 	
 	a = ((255.f*Measure.ovf)+TCNT0)*0.001709568;
 	p =	TCNT1*0.003183264;
-	Measure.La += a;
-	Measure.Lp += p;
 	Measure.Fa = MovAvgAramid(a*60); // (1.2096774 * 0.0848 = 0.10258
 	Measure.Fp = MovAvgPolyamide(p*60); // 50 imp/rev // (1.2096774 * 0.1579 = 0.19052
 }
@@ -382,8 +367,6 @@ void ModeControl()
 	{
 		if (Mode.current == Waiting)
 		{
-			Measure.La = 0;
-			Measure.Lp = 0;
 			Mode.count = AccelDelay;
 			Mode.current = Acceleration;
 			Mode.alarmCount = AlarmDelay;
