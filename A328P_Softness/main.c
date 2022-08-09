@@ -94,21 +94,19 @@ const unsigned int		FREQUENCY_MAXIMUM = 7812;
 const unsigned int		FREQUENCY = 3000;
 const unsigned int		PERIOD = 30;
 
-void Timer1(unsigned short mode)
+void Timer1(bool enable)
 {
-	switch(mode)
+	if (enable)
 	{
-		case On:
-			TCCR1B = (1 << CS12)|(0 << CS11)|(1 << CS10);
-			TIMSK1 = (1 << TOIE1);
-			TCNT1 = 62411;
-			break;
-		default:
-			TCCR1B = (0 << CS12)|(0 << CS11)|(0 << CS10);
-			TIMSK1 = (0 << TOIE1);
-			TCNT1 = 62411;
-			break;
+		TCCR1B = (1 << CS12)|(0 << CS11)|(1 << CS10);
+		TIMSK1 = (1 << TOIE1);
+		TCNT1 = 62411;
+		return;
 	}
+	
+	TCCR1B = (0 << CS12)|(0 << CS11)|(0 << CS10);
+	TIMSK1 = (0 << TOIE1);
+	TCNT1 = 62411;
 }
 
 ISR(TIMER1_OVF_vect)
