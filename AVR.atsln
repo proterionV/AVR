@@ -62,6 +62,8 @@ Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Softness", "A328P_Sof
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328Ps_Autoassembling_Aramid", "A328Ps_Autoassembling_Aramid\A328Ps_Autoassembling_Aramid.cproj", "{653F322A-B77A-4A99-92F2-21EACA897FB3}"
 EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328Ps_Roughness", "A328Ps_Roughness\A328Ps_Roughness.cproj", "{24CA34C9-B1F9-4EF3-A673-C1518EB5503E}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
@@ -96,6 +98,10 @@ Global
 		{653F322A-B77A-4A99-92F2-21EACA897FB3}.Debug|AVR.Build.0 = Debug|AVR
 		{653F322A-B77A-4A99-92F2-21EACA897FB3}.Release|AVR.ActiveCfg = Release|AVR
 		{653F322A-B77A-4A99-92F2-21EACA897FB3}.Release|AVR.Build.0 = Release|AVR
+		{24CA34C9-B1F9-4EF3-A673-C1518EB5503E}.Debug|AVR.ActiveCfg = Debug|AVR
+		{24CA34C9-B1F9-4EF3-A673-C1518EB5503E}.Debug|AVR.Build.0 = Debug|AVR
+		{24CA34C9-B1F9-4EF3-A673-C1518EB5503E}.Release|AVR.ActiveCfg = Release|AVR
+		{24CA34C9-B1F9-4EF3-A673-C1518EB5503E}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
