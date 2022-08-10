@@ -5,8 +5,6 @@
  *  Author: igor.abramov
  */ 
 
-#define F_CPU	16000000L
-
 #define Check(REG,BIT) (REG &  (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
 #define High(REG,BIT)  (REG |= (1<<BIT))
@@ -52,7 +50,7 @@
 #include <stdbool.h>
 #include <util/delay.h>
 
-enum 
+enum
 {
 	Measurment,
 	Parameters,
@@ -84,8 +82,15 @@ volatile struct
 	float difference;
 } Measure;
 
+volatile struct
+{
+	unsigned short forward;
+	unsigned short backward;
+	unsigned short button;
+} Encoder;
+
 const unsigned long int ACCUM_MAXIMUM = 1000000000;
-const unsigned int		FREQUENCY_MAXIMUM = 7812;
+const unsigned int		FREQUENCY_MAXIMUM = 31250;
 
 void Timer1(bool enable)
 {
@@ -118,7 +123,7 @@ void Timer2(bool enable)
 {
 	if (enable)
 	{
-		TCCR2B = (1<<CS22) | (1<<CS21) | (1<<CS20); // 1024 bit scaler
+		TCCR2B = (1<<CS22) | (1<<CS21) | (0<<CS20); // 1024 bit scaler
 		TIMSK2 = (1<<TOIE2);
 		return;
 	}
@@ -174,35 +179,35 @@ float GetAddendum(void)
 
 void SetOptionDDS(short direction)
 {
-	if (Menu.mode == Manual)
-	{
-		if (direction > 0) DDS.frequency += DDS.frequency + Encoder.addendumValues[Encoder.addendum] <= FREQUENCY_MAXIMUM ? Encoder.addendumValues[Encoder.addendum] : 0;
-		if (direction < 0) DDS.frequency -= DDS.frequency - Encoder.addendumValues[Encoder.addendum] < 0 ? DDS.frequency : Encoder.addendumValues[Encoder.addendum];
-		DDS.increment = GetAddendum();
-		if (DDS.frequency < 0.1) { PhaseOff; Timer2(false); } else { Timer2(true); PhaseOn; }
-		return;
-	}
-	
-	if (!direction)
-	{
-		DDS.frequency = Measure.frequency * Encoder.multiplier;
-		DDS.increment = GetAddendum();
-		return;
-	}
-	
-	if (direction > 0)
-	{
-		Encoder.multiplier += DDS.frequency >= FREQUENCY_MAXIMUM ? 0 : Encoder.addendumValues[Encoder.addendum];
-		eeprom_update_float((float*)1, Encoder.multiplier);
-		Encoder.multiplierChanged = true;
-	}
-	
-	if (direction < 0)
-	{
-		Encoder.multiplier -= Encoder.multiplier <= Encoder.addendumValues[Encoder.addendum] ? Encoder.multiplier : Encoder.addendumValues[Encoder.addendum];
-		eeprom_update_float((float*)1, Encoder.multiplier);
-		Encoder.multiplierChanged = true;
-	}
+	//if (Menu.mode == Manual)
+	//{
+		//if (direction > 0) DDS.frequency += DDS.frequency + Encoder.addendumValues[Encoder.addendum] <= FREQUENCY_MAXIMUM ? Encoder.addendumValues[Encoder.addendum] : 0;
+		//if (direction < 0) DDS.frequency -= DDS.frequency - Encoder.addendumValues[Encoder.addendum] < 0 ? DDS.frequency : Encoder.addendumValues[Encoder.addendum];
+		//DDS.increment = GetAddendum();
+		//if (DDS.frequency < 0.1) { PhaseOff; Timer2(false); } else { Timer2(true); PhaseOn; }
+		//return;
+	//}
+	//
+	//if (!direction)
+	//{
+		//DDS.frequency = Measure.frequency * Encoder.multiplier;
+		//DDS.increment = GetAddendum();
+		//return;
+	//}
+	//
+	//if (direction > 0)
+	//{
+		//Encoder.multiplier += DDS.frequency >= FREQUENCY_MAXIMUM ? 0 : Encoder.addendumValues[Encoder.addendum];
+		//eeprom_update_float((float*)1, Encoder.multiplier);
+		//Encoder.multiplierChanged = true;
+	//}
+	//
+	//if (direction < 0)
+	//{
+		//Encoder.multiplier -= Encoder.multiplier <= Encoder.addendumValues[Encoder.addendum] ? Encoder.multiplier : Encoder.addendumValues[Encoder.addendum];
+		//eeprom_update_float((float*)1, Encoder.multiplier);
+		//Encoder.multiplierChanged = true;
+	//}
 }
 
 void EncoderHandler(void)
@@ -237,31 +242,38 @@ void EncoderHandler(void)
 		{
 			if (Encoder.button == 1)
 			{
-				switch(Encoder.addendum)
-				{
-					case one:
-					Encoder.addendum = ten;
-					break;
-					case ten:
-					Encoder.addendum = hundred;
-					break;
-					case hundred:
-					Encoder.addendum = thousand;
-					break;
-					default:
-					Encoder.addendum = one;
-					break;
-				}
-				Encoder.addendumChanged = true;
+				
 			}
 		}
 	}
 }
 
+void Initialization()
+{
+	DDRB = 0xFF;
+	PORTB = 0x00;
+	
+	DDRD = 0x00;
+	PORTD = 0xFF;
+	
+	DDS.frequency = 2000;
+	DDS.increment = GetAddendum();
+	
+	Timer1(true);
+	Timer2(true);
+	sei();	
+}
+
 int main(void)
 {
+	Initialization();
+	
     while(1)
     {
-        
+		if (MainTimer.ms1000)
+		{
+			LedInv;
+			MainTimer.ms1000 = 0;
+		}   
     }
 }

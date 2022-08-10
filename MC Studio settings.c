@@ -6,7 +6,7 @@ avrdude -v -p m328p -c arduino -P com6 -b 115200 -D -U flash:w:"$(ProjectDir)Deb
 
 /*
 Example setting for correct float conversion
-Project properties -> Toolchain -> XC8 Linker -> Miscellaneous -> Other linked flags (just put):
+Project properties -> Toolchain -> XC8 Linker -> Miscellaneous -> Other linked flags (just put it):
 -Wl,-u,vfprintf -lprintf_flt -lm
 */
 
