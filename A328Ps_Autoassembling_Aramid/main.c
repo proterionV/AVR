@@ -232,7 +232,7 @@ void Step(short direction)
 	{
 		case Right:
 			ImpOn;
-			_delay_us(400);
+			_delay_ms(1);
 			if (!MainTimer.interval) MainTimer.interval = HighIntervalR;
 			break;
 		case Left:
