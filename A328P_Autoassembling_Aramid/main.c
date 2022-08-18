@@ -2,7 +2,7 @@
  * main.c
  *
  * Created: 3/14/2022 3:07:47 PM
- *  Author: igor.abramov
+ * Author: igor.abramov
  */ 
 
 /*

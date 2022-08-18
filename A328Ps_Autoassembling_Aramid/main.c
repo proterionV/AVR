@@ -13,34 +13,34 @@
 #define High(REG,BIT)  (REG |= (1<<BIT))
 #define Low(REG,BIT)   (REG &= (0<<BIT))
 
-#define Fault		Check(PORTB, 0) // output for open contact of yarn brake
-#define FaultOn		High(PORTB, 0)
-#define FaultOff	Low(PORTB, 0)
-#define FaultInv	Inv(PORTB, 0)
+#define Imp			Check(PORTB, 0)	// control pulses of motor
+#define ImpOn		High(PORTB, 0)
+#define ImpOff		Low(PORTB, 0)
+#define ImpInv		Inv(PORTB, 0)
+
+#define Fault		Check(PORTB, 1) // output for open contact of yarn brake
+#define FaultOn		High(PORTB, 1)
+#define FaultOff	Low(PORTB, 1)
+#define FaultInv	Inv(PORTB, 1)
 
 #define Led			Check(PORTB, 5)	// operating led period = 1984 ms if not something wrong
 #define LedOn		High(PORTB, 5)
 #define LedOff		Low(PORTB, 5)
 #define LedInv		Inv(PORTB, 5)
-
-#define Imp			Check(PORTC, 0)	// control pulses of motor
-#define ImpOn		High(PORTC, 0)
-#define ImpOff		Low(PORTC, 0)
-#define ImpInv		Inv(PORTC, 0)
  
+#define Running		Check(PIND, 3) // spindle run input
 #define Aramid		Check(PIND, 4) // aramid speed pulses input
 #define Polyamide   Check(PIND, 5) // polyamide speed pulses input
-#define Running		Check(PIND, 6) // spindle run input
 
-#define Init	 8
+#define Off		 0
 #define On		 1
-#define Of		 2
+#define Init	 2
+
 #define TxOn	 3
 #define TxOff	 4
 #define RxOn	 5
 #define RxOff	 6
 
-#define Off				0
 #define InternalCounter 1
 #define ExternalCounter 2
 
@@ -173,28 +173,28 @@ void USART(unsigned short option)
 	switch (option)
 	{
 		case TxOn:
-		UCSR0B |= (1 << TXEN0);
-		break;
+			UCSR0B |= (1 << TXEN0);
+			break;
 		case TxOff:
-		UCSR0B |= (0 << TXEN0);
-		break;
+			UCSR0B |= (0 << TXEN0);
+			break;
 		case RxOn:
-		UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
-		break;
+			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			break;
 		case RxOff:
-		UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-		break;
+			UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			break;
 		case On:
-		UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
-		break;
+			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			break;
 		case Off:
-		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-		break;
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			break;
 		default:
-		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-		UBRR0  =  3;
-		break;
+			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+			UBRR0  =  3;
+			break;
 	}
 }
 
@@ -216,8 +216,8 @@ void Transmit()
 	
 	memset(buffer, 0, TxBufferSize);
 	
-	sprintf(A, "$A%.1f", 0.1);
-	sprintf(P, "$P%.1f", 0.1);
+	sprintf(A, "$A%.1f ", Measure.Ua);
+	sprintf(P, "$P%.1f ", Measure.Up);
 	strcat(buffer, A);
 	strcat(buffer, P);
 	
@@ -252,8 +252,8 @@ float MovAvgPolyamide(float value)
 
 void Calculation()
 {
-	Measure.Ua = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.001709568);
-	Measure.Up = MovAvgPolyamide(TCNT1*0.003183264); 
+	Measure.Ua = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.05128704);
+	Measure.Up = MovAvgPolyamide(TCNT1*0.05128704); 
 }
 
 void Initialization()
@@ -325,8 +325,8 @@ void Control()
 		 
 		 if (Mode.current == Waiting)
 		 {
-			 LedOn;
 			 FaultOff;
+			 LedOn;
 			 Mode.delay = AccelDelay;
 			 Mode.current = Acceleration;
 			 Mode.fuse = FaultDelay;
@@ -413,7 +413,7 @@ void Regulator()
 void InterruptMS16()
 {
 	if (MainTimer.interrupt16)
-	{
+	{		
 		MainTimer.interrupt16 = false;
 		if (Signal.permission)
 		{
@@ -437,12 +437,11 @@ void InterruptMS16()
 void InterruptMS992()
 {
 	if (MainTimer.interrupt992)
-	{		
-		Transmit();
-			
+	{			
 		if (Mode.current == Process || Mode.current == Acceleration)
 		{
 			Calculation();
+			Transmit();
 
 			if (Mode.operation != Stop && Mode.fuse && !Mode.fault) Mode.fuse--;
 			
@@ -459,7 +458,7 @@ void InterruptMS992()
 		else LedInv;
 		
 		if (Mode.delay) Mode.delay--;
-		if (Running && !Mode.run) { LedOn; Mode.run == true; }
+		if (Running && !Mode.run) Mode.run = true;
 		if (!Running && Mode.run) Mode.run = false;
 		MainTimer.interrupt992 = false;
 	}	

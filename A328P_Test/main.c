@@ -266,8 +266,6 @@ void Comparator(bool enable)
 	if (enable)
 	{
 		ACSR |= (0<<ACD)|(1<<ACBG)|(0<<ACI)|(1<<ACIE)|(0<<ACIC)|(0<<ACIS1)|(0<<ACIS0);
-		ADCSRA |= (0<<ADEN)|(0<<ADSC)|(0<<ADATE)|(0<<ADIF)|(0<<ADIE)|(0<<ADPS2)|(0<<ADPS1)|(0<<ADPS0);
-		ADCSRB |= (0<<ACME)|(0<<ADTS2)|(0<<ADTS1)|(0<<ADTS0);
 		DIDR1 |= (1<<AIN1D)|(1<<AIN0D);
 	}	
 	
