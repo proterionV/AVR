@@ -6,7 +6,7 @@
  */ 
 
 #define F_CPU	16000000L
-#define Spindle	7		  // order number device = order number of spindle, can use as address of device, it should be positioned in RAM
+#define Spindle	3					// order number device = order number of spindle, can use as address of device, it should be positioned in RAM
 
 #define Check(REG,BIT) (REG &  (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
@@ -32,6 +32,14 @@
 #define Polyamide   Check(PIND, 5) // polyamide speed pulses input
 #define Running		Check(PIND, 6) // spindle run input
 
+#define Init	 8
+#define On		 1
+#define Of		 2
+#define TxOn	 3
+#define TxOff	 4
+#define RxOn	 5
+#define RxOff	 6
+
 #define Off				0
 #define InternalCounter 1
 #define ExternalCounter 2
@@ -44,6 +52,8 @@
 #define Left 			20
 #define Stop			30
 
+#define TxBufferSize	100
+
 // these parameters also should be positioned in ROM
 #define AvgArraySize    35		// Size of array to calculate average
 #define HighIntervalR	1		// count 16 ms period of generation to right rotation
@@ -52,8 +62,8 @@
 #define LowIntervalL 	-0		// count 16 ms period of prohibited generation to left
 #define AccelDelay		40		// delay to start measuring after spindle start
 #define FaultDelay		1200	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			0.005	// if ratio > range up then motor left
-#define RangeDown		-0.005	// if ratio < range up then motor right; between = stop
+#define RangeUp			0.007	// if ratio > range up then motor left
+#define RangeDown		-0.007	// if ratio < range up then motor right; between = stop
 #define Overfeed		0		// factor to keep wrong assembling (for example if we need asm - 10)
 
 #include <xc.h>
@@ -158,6 +168,62 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 5;
 }
 
+void USART(unsigned short option)
+{
+	switch (option)
+	{
+		case TxOn:
+		UCSR0B |= (1 << TXEN0);
+		break;
+		case TxOff:
+		UCSR0B |= (0 << TXEN0);
+		break;
+		case RxOn:
+		UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+		break;
+		case RxOff:
+		UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+		break;
+		case On:
+		UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+		break;
+		case Off:
+		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+		break;
+		default:
+		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+		UBRR0  =  3;
+		break;
+	}
+}
+
+void TxChar(unsigned char c)
+{
+	while (!(UCSR0A & (1<<UDRE0)));
+	UDR0 = c;
+}
+
+void TxString(const char* s)
+{
+	for (int i=0; s[i]; i++) TxChar(s[i]);
+}
+
+void Transmit()
+{
+	static char buffer[TxBufferSize] = { 0 };
+	static char A[20], P[20];
+	
+	memset(buffer, 0, TxBufferSize);
+	
+	sprintf(A, "$A%.1f", 0.1);
+	sprintf(P, "$P%.1f", 0.1);
+	strcat(buffer, A);
+	strcat(buffer, P);
+	
+	TxString(buffer);
+}
+
 float MovAvgAramid(float value)
 {
 	static unsigned short index = 0;
@@ -198,7 +264,7 @@ void Initialization()
 	DDRC = 0b00111111;
 	PORTC = 0b11000000;
 	
-	DDRD = 0b00000001;
+	DDRD = 0b00000010;
 	PORTD = 0b00110011;
 	
 	MainTimer.ms16 = 0;
@@ -221,6 +287,8 @@ void Initialization()
 	Signal.permission = false;
 	
 	Timer2(InternalCounter);
+	USART(Init);
+	USART(TxOn);
 	sei();
 }
 
@@ -237,7 +305,7 @@ void Step(short direction)
 			break;
 		case Left:
 			ImpOn;
-			_delay_ms(5);
+			_delay_ms(7);
 			if (!MainTimer.interval) MainTimer.interval = HighIntervalL;
 			break;
 		default:
@@ -369,7 +437,9 @@ void InterruptMS16()
 void InterruptMS992()
 {
 	if (MainTimer.interrupt992)
-	{			
+	{		
+		Transmit();
+			
 		if (Mode.current == Process || Mode.current == Acceleration)
 		{
 			Calculation();

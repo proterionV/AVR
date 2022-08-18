@@ -42,16 +42,15 @@
 
 //#define ImpOn  Low(PORTD, 7)
 //#define ImpOff High(PORTD, 7)
-#define ImpOn  High(PORTD, 7)
-#define ImpOff Low(PORTD, 7)
-#define ImpInv Inv(PORTD, 7)
+#define ImpOn  High(PORTD, 3)
+#define ImpOff Low(PORTD, 3)
+#define ImpInv Inv(PORTD, 3)
 
 #define ServoUp		 High(PORTB, 1)
 #define	ServoDown 	 Low(PORTB, 1)
 #define ServoCommand (Check(PINC, 0))
 
 #define Active		(!Check(PIND, 2))
-#define RightOn		(!Check(PIND, 3))
 
 #define Counter		0
 #define Oscillator  1
@@ -206,6 +205,11 @@ ISR(ADC_vect)
 	Convert.done++;
 }
 
+ISR(ANALOG_COMP_vect)
+{
+	LedOn;
+}
+
 void Timer0(bool enable)
 {
 	if (enable)
@@ -256,7 +260,20 @@ void Timer2(bool enable)
 	TIMSK2 = (0<<TOIE2);
 	TCNT2 = 0;
 }
-
+ 
+void Comparator(bool enable)
+{
+	if (enable)
+	{
+		ACSR |= (0<<ACD)|(1<<ACBG)|(0<<ACI)|(1<<ACIE)|(0<<ACIC)|(0<<ACIS1)|(0<<ACIS0);
+		ADCSRA |= (0<<ADEN)|(0<<ADSC)|(0<<ADATE)|(0<<ADIF)|(0<<ADIE)|(0<<ADPS2)|(0<<ADPS1)|(0<<ADPS0);
+		ADCSRB |= (0<<ACME)|(0<<ADTS2)|(0<<ADTS1)|(0<<ADTS0);
+		DIDR1 |= (1<<AIN1D)|(1<<AIN0D);
+	}	
+	
+	ACSR |= (1<<ACD);
+}
+ 
 void EraseUnits(int x, int y, int offset, float count)
 {
 	static unsigned char eraser = 32;
@@ -572,72 +589,44 @@ void Step(short direction)
 
 void Control()
 {
-	//if (!Active) return;
-	
 	if (Active) { Step(Right);	return; }
 	
 	Step(Left);
 }
 
-void Control2()
-{
-	if (!Active) return;
-	
-	if (RightOn)
-	{
-		ImpOn;
-		_delay_us(200);
-		ImpOff;
-		_delay_ms(70);
-		return;
-	}
-
-	ImpOn;
-	_delay_ms(70);
-	ImpOff;
-}
-
-void Control3()
-{
-	ImpInv;
-	_delay_us(2500);
-}
-
 int main(void)
 {
-	DDRB = 0b00111110;
-	PORTB = 0b00000001;
+	DDRB = 0b00100001;
+	PORTB = 0b00000000;
 	
-	DDRC = 0b00111100;
+	DDRC = 0b00000000;
 	PORTC = 0b11000000;
 	
-	DDRD = 0b11000010;
-	PORTD = 0b10011111;
+	DDRD = 0b00001000;
+	PORTD = 0b00110100;
 	
 	//lcd_init(LCD_DISP_ON);
 	//lcd_led(false);
 	//lcd_clrscr();
 	//lcd_home();
 	
-	Timer0(false);
+	//Timer0(false);
 	Timer1(Counter);
-	Timer2(false);
-	USART(Off);
-	Converter(Off);
+	//Timer2(false);
+	//USART(Off);
+	//Converter(Off);
+	Comparator(true);
 	sei();
-	
-	LedOff;
-	ImpOff;
 	
 	while(1)
 	{	
-		Control();
+		//Control();
 		
-		if (Rx.byteReceived)
-		{
-			Receive();
-			Rx.byteReceived = 0;
-		}
+		//if (Rx.byteReceived)
+		//{
+			//Receive();
+			//Rx.byteReceived = 0;
+		//}
 		
 		if (MainTimer.isr)
 		{
@@ -648,14 +637,12 @@ int main(void)
 		
 		if (MainTimer.ms200)
 		{
-			
+			LedInv;
 			MainTimer.ms200 = 0;
 		}
 		
 		if (MainTimer.ms1000)
 		{
-			LedInv;
-			ImpInv;
 			MainTimer.sec++;
 			//DisplayPrint();
 			if (MainTimer.sec >= 59) MainTimer.sec = 0;
