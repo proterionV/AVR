@@ -55,7 +55,7 @@
 #define TxBufferSize	100
 
 // these parameters also should be positioned in ROM
-#define AvgArraySize    35		// Size of array to calculate average
+#define FilterFactor    0.1		// Size of array to calculate average
 #define HighIntervalR	1		// count 16 ms period of generation to right rotation
 #define LowIntervalR	-0		// count 16 ms period of prohibited generation to right
 #define HighIntervalL	1		// count 16 ms period of generation to left rotation
@@ -224,41 +224,36 @@ void Transmit()
 	TxString(buffer);
 }
 
-float MovAvgAramid(float value)
+float MovAvgAramid(float value, bool reset)
 {
-	static unsigned short index = 0;
-	static float array[AvgArraySize] = { 0 };
 	static float result = 0;
 	
-	result += value - array[index];
-	array[index] = value;
-	index = (index + 1) % AvgArraySize;
+	if (reset) result = 0;
 	
-	return result/AvgArraySize;
+	result += (value - result) * FilterFactor;
+	
+	return result;
 }
 
-float MovAvgPolyamide(float value)
+float MovAvgPolyamide(float value, bool reset)
 {
-	static unsigned short index = 0;
-	static float array[AvgArraySize] = { 0 };
 	static float result = 0;
 	
-	result += value - array[index];
-	array[index] = value;
-	index = (index + 1) % AvgArraySize;
+	if (reset) result = 0;
 	
-	return result/AvgArraySize;
+	result += (value - result) * FilterFactor;
+	
+	return result;
 }
 
-void Calculation()
-{
-	Measure.Ua = MovAvgAramid(((255.f*Measure.ovf)+TCNT0)*0.05128704);
-	Measure.Up = MovAvgPolyamide(TCNT1*0.05128704); 
+void Calculation(){					 // 0.087964*1.008*60/100
+	Measure.Ua = MovAvgAramid(((255.f*Measure.ovf)+TCNT0+1)*0.0532009867, false);
+	Measure.Up = MovAvgPolyamide(TCNT1*0.0532009867, false); 
 }
 
 void Initialization()
 {
-	DDRB = 0b11111111;
+	DDRB = 0b00111111;
 	PORTB = 0b00000000;
 	
 	DDRC = 0b00111111;
@@ -286,9 +281,10 @@ void Initialization()
 	Signal.ready = false;
 	Signal.permission = false;
 	
+	MovAvgAramid(0, true);
+	MovAvgPolyamide(0, true);
+	
 	Timer2(InternalCounter);
-	USART(Init);
-	USART(TxOn);
 	sei();
 }
 
@@ -300,12 +296,12 @@ void Step(short direction)
 	{
 		case Right:
 			ImpOn;
-			_delay_ms(1);
+			_delay_ms(7);
 			if (!MainTimer.interval) MainTimer.interval = HighIntervalR;
 			break;
 		case Left:
 			ImpOn;
-			_delay_ms(7);
+			_delay_ms(1);
 			if (!MainTimer.interval) MainTimer.interval = HighIntervalL;
 			break;
 		default:
@@ -313,7 +309,7 @@ void Step(short direction)
 			break;
 	}
 	
-	ImpOff;
+	PORTB &= (0 << 1);
 	_delay_ms(5);
 }
 
@@ -346,11 +342,8 @@ void Control()
 	 Timer0(Off);
 	 Timer1(Off);
 	 
-	 for (int i = 0; i<AvgArraySize; i++)
-	 {
-		 MovAvgAramid(0);
-		 MovAvgPolyamide(0);
-	 }
+	 MovAvgAramid(0, true);
+	 MovAvgPolyamide(0, true);
 	 
 	 TCNT0 = 0;
 	 TCNT1 = 0;
@@ -440,8 +433,8 @@ void InterruptMS992()
 	{			
 		if (Mode.current == Process || Mode.current == Acceleration)
 		{
+			if (!Led) LedOn;
 			Calculation();
-			Transmit();
 
 			if (Mode.operation != Stop && Mode.fuse && !Mode.fault) Mode.fuse--;
 			
