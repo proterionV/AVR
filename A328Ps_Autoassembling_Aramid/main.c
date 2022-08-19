@@ -7,30 +7,30 @@
 
 #define F_CPU	16000000L
 #define Spindle	3					// order number device = order number of spindle, can use as address of device, it should be positioned in RAM
-
-#define Check(REG,BIT) (REG &  (1<<BIT))
+				
+#define Check(REG,BIT) (REG & (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
 #define High(REG,BIT)  (REG |= (1<<BIT))
-#define Low(REG,BIT)   (REG &= (0<<BIT))
+#define Low(REG,BIT)   (REG &= ~(1<<BIT))
 
-#define Imp			Check(PORTB, 0)	// control pulses of motor
-#define ImpOn		High(PORTB, 0)
-#define ImpOff		Low(PORTB, 0)
-#define ImpInv		Inv(PORTB, 0)
+#define Imp			Check(PORTB, PORTB0)	// control pulses of motor
+#define ImpOn		High(PORTB, PORTB0)
+#define ImpOff		Low(PORTB, PORTB0)
+#define ImpInv		Inv(PORTB, PORTB0)
 
-#define Fault		Check(PORTB, 1) // output for open contact of yarn brake
-#define FaultOn		High(PORTB, 1)
-#define FaultOff	Low(PORTB, 1)
-#define FaultInv	Inv(PORTB, 1)
+#define Fault		Check(PORTB, PORTB1) // output for open contact of yarn brake
+#define FaultOn		High(PORTB, PORTB1)
+#define FaultOff	Low(PORTB, PORTB1)
+#define FaultInv	Inv(PORTB, PORTB1)
 
-#define Led			Check(PORTB, 5)	// operating led period = 1984 ms if not something wrong
-#define LedOn		High(PORTB, 5)
-#define LedOff		Low(PORTB, 5)
-#define LedInv		Inv(PORTB, 5)
+#define Led			Check(PORTB, PORTB5)	// operating led period = 1984 ms if not something wrong
+#define LedOn		High(PORTB, PORTB5)
+#define LedOff		Low(PORTB, PORTB5)
+#define LedInv		Inv(PORTB, PORTB5)
  
-#define Running		Check(PIND, 3) // spindle run input
-#define Aramid		Check(PIND, 4) // aramid speed pulses input
-#define Polyamide   Check(PIND, 5) // polyamide speed pulses input
+#define Running		Check(PIND, PIND3) // spindle run input
+#define Aramid		Check(PIND, PIND4) // aramid speed pulses input
+#define Polyamide   Check(PIND, PIND5) // polyamide speed pulses input
 
 #define Off		 0
 #define On		 1
@@ -295,7 +295,7 @@ void Step(short direction)
 	switch (direction)
 	{
 		case Right:
-			ImpOn;
+			ImpOn; 
 			_delay_ms(7);
 			if (!MainTimer.interval) MainTimer.interval = HighIntervalR;
 			break;
@@ -309,7 +309,7 @@ void Step(short direction)
 			break;
 	}
 	
-	PORTB &= (0 << 1);
+	ImpOff;
 	_delay_ms(5);
 }
 
