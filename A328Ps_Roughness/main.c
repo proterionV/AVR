@@ -5,10 +5,10 @@
  *  Author: igor.abramov
  */ 
 
-#define Check(REG,BIT) (REG &  (1<<BIT))
+#define Check(REG,BIT) (REG & (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
 #define High(REG,BIT)  (REG |= (1<<BIT))
-#define Low(REG,BIT)   (REG &= (0<<BIT))
+#define Low(REG,BIT)   (REG &= ~(1<<BIT))
 
 #define Led     Check(PORTB, 5)
 #define LedOn   High(PORTB, 5)

@@ -23,14 +23,14 @@
 #define FaultOff	Low(PORTB, PORTB1)
 #define FaultInv	Inv(PORTB, PORTB1)
 
-#define Led			Check(PORTB, PORTB5)	// operating led period = 1984 ms if not something wrong
+#define Led			Check(PORTB, PORTB5) // operating led period = 1984 ms if not something wrong
 #define LedOn		High(PORTB, PORTB5)
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
  
-#define Running		Check(PIND, PIND3) // spindle run input
-#define Aramid		Check(PIND, PIND4) // aramid speed pulses input
-#define Polyamide   Check(PIND, PIND5) // polyamide speed pulses input
+#define Running		Check(PIND, PIND3)  // spindle run input
+#define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
+#define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
 
 #define Off		 0
 #define On		 1
@@ -53,8 +53,7 @@
 #define Stop			30
 
 #define TxBufferSize	100
-
-// these parameters also should be positioned in ROM
+								// these parameters also should be positioned in ROM
 #define FilterFactor    0.1		// Size of array to calculate average
 #define HighIntervalR	1		// count 16 ms period of generation to right rotation
 #define LowIntervalR	-0		// count 16 ms period of prohibited generation to right
@@ -246,9 +245,10 @@ float MovAvgPolyamide(float value, bool reset)
 	return result;
 }
 
-void Calculation(){					 // 0.087964*1.008*60/100
+void Calculation()
+{					 
 	Measure.Ua = MovAvgAramid(((255.f*Measure.ovf)+TCNT0+1)*0.0532009867, false);
-	Measure.Up = MovAvgPolyamide(TCNT1*0.0532009867, false); 
+	Measure.Up = MovAvgPolyamide(TCNT1*0.0532009867, false); 	   // 0.087964*1.008*60/100
 }
 
 void Initialization()
