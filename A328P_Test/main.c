@@ -618,7 +618,7 @@ int main(void)
 	
 	while(1)
 	{	
-		//Control();
+		Control();
 		
 		//if (Rx.byteReceived)
 		//{

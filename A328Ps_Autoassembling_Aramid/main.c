@@ -60,7 +60,7 @@
 #define HighIntervalL	1		// count 16 ms period of generation to left rotation
 #define LowIntervalL 	-0		// count 16 ms period of prohibited generation to left
 #define AccelDelay		40		// delay to start measuring after spindle start
-#define FaultDelay		1200	// if Mode.operation != Stop > FaultDelay then spindle stop
+#define FaultDelay		600  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			0.007	// if ratio > range up then motor left
 #define RangeDown		-0.007	// if ratio < range up then motor right; between = stop
 #define Overfeed		0		// factor to keep wrong assembling (for example if we need asm - 10)
@@ -104,7 +104,8 @@ volatile struct
 volatile struct
 {
 	bool ready;
-	bool permission;	
+	bool permission;
+	//bool ignore;
 } Signal;
 
 void Timer0(unsigned short func)
@@ -285,6 +286,8 @@ void Initialization()
 	MovAvgPolyamide(0, true);
 	
 	Timer2(InternalCounter);
+	//USART(Init);
+	//USART(TxOn);
 	sei();
 }
 
@@ -321,8 +324,8 @@ void Control()
 		 
 		 if (Mode.current == Waiting)
 		 {
+			 LedOff;
 			 FaultOff;
-			 LedOn;
 			 Mode.delay = AccelDelay;
 			 Mode.current = Acceleration;
 			 Mode.fuse = FaultDelay;
@@ -332,7 +335,12 @@ void Control()
 			 return;
 		 }
 		 
-		 if (Mode.current == Acceleration && !Mode.delay) Mode.current = Process;
+		 if (Mode.current == Acceleration && !Mode.delay) 
+		 {
+			 LedOn;
+			 Mode.current = Process;
+		 }
+		 
 		 return;
 	 }
 	 
@@ -375,7 +383,6 @@ void Regulator()
 		Signal.ready = false;
 		Signal.permission = false;
 		MainTimer.interval = 0;
-		FaultOff;
 		return;
 	}
 	
@@ -433,8 +440,8 @@ void InterruptMS992()
 	{			
 		if (Mode.current == Process || Mode.current == Acceleration)
 		{
-			if (!Led) LedOn;
 			Calculation();
+			//Transmit();
 
 			if (Mode.operation != Stop && Mode.fuse && !Mode.fault) Mode.fuse--;
 			
@@ -455,7 +462,7 @@ void InterruptMS992()
 		if (!Running && Mode.run) Mode.run = false;
 		MainTimer.interrupt992 = false;
 	}	
-};
+}
 
 int main(void)
 {
