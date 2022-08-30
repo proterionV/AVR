@@ -6,7 +6,7 @@
  */ 
 
 #define F_CPU	16000000L
-#define Spindle	3					// order number device = order number of spindle, can use as address of device, it should be positioned in RAM
+#define Spindle		3				// order number device = order number of spindle, can use as address of device, it should be positioned in RAM
 				
 #define Check(REG,BIT) (REG & (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
@@ -59,7 +59,7 @@
 #define LowIntervalR	-0		// count 16 ms period of prohibited generation to right
 #define HighIntervalL	1		// count 16 ms period of generation to left rotation
 #define LowIntervalL 	-0		// count 16 ms period of prohibited generation to left
-#define AccelDelay		40		// delay to start measuring after spindle start
+#define AccelDelay		30		// delay to start measuring after spindle start
 #define FaultDelay		600  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			0.007	// if ratio > range up then motor left
 #define RangeDown		-0.007	// if ratio < range up then motor right; between = stop
@@ -91,7 +91,7 @@ volatile struct
 	float Up;
 } Measure;
 
-volatile struct
+struct
 {
 	unsigned short operation;
 	unsigned short current;
@@ -105,7 +105,6 @@ volatile struct
 {
 	bool ready;
 	bool permission;
-	//bool ignore;
 } Signal;
 
 void Timer0(unsigned short func)
@@ -248,7 +247,7 @@ float MovAvgPolyamide(float value, bool reset)
 
 void Calculation()
 {					 
-	Measure.Ua = MovAvgAramid(((255.f*Measure.ovf)+TCNT0+1)*0.0532009867, false);
+	Measure.Ua = MovAvgAramid((255.f*Measure.ovf+TCNT0)*0.0532009867, false);
 	Measure.Up = MovAvgPolyamide(TCNT1*0.0532009867, false); 	   // 0.087964*1.008*60/100
 }
 
@@ -438,6 +437,8 @@ void InterruptMS992()
 {
 	if (MainTimer.interrupt992)
 	{			
+		MainTimer.interrupt992 = false;
+		
 		if (Mode.current == Process || Mode.current == Acceleration)
 		{
 			Calculation();
@@ -458,9 +459,8 @@ void InterruptMS992()
 		else LedInv;
 		
 		if (Mode.delay) Mode.delay--;
-		if (Running && !Mode.run) Mode.run = true;
+		if (Running && !Mode.run) { Mode.run = true; return; }
 		if (!Running && Mode.run) Mode.run = false;
-		MainTimer.interrupt992 = false;
 	}	
 }
 
