@@ -3,10 +3,11 @@
  *
  * Created: 6/4/2022 7:34:54 PM
  *  Author: igor.abramov
+ * k = Tcount*0.028*Pi*60/100
  */ 
 
 #define F_CPU	16000000L
-#define Spindle		3				// order number device = order number of spindle, can use as address of device, it should be positioned in RAM
+#define Spindle	3				// order number device = order number of spindle, can use as address of device, it should be positioned in RAM
 				
 #define Check(REG,BIT) (REG & (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
@@ -36,33 +37,15 @@
 #define On		 1
 #define Init	 2
 
-#define TxOn	 3
-#define TxOff	 4
-#define RxOn	 5
-#define RxOff	 6
-
-#define InternalCounter 1
-#define ExternalCounter 2
-
-#define Acceleration	11
-#define Waiting			22
-#define Process			33
-
 #define Right	 		10
 #define Left 			20
-#define Stop			30
-
-#define TxBufferSize	100
+#define Locked			30
 								// these parameters also should be positioned in ROM
 #define FilterFactor    0.1		// Size of array to calculate average
-#define HighIntervalR	1		// count 16 ms period of generation to right rotation
-#define LowIntervalR	-0		// count 16 ms period of prohibited generation to right
-#define HighIntervalL	1		// count 16 ms period of generation to left rotation
-#define LowIntervalL 	-0		// count 16 ms period of prohibited generation to left
-#define AccelDelay		30		// delay to start measuring after spindle start
-#define FaultDelay		600  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			0.007	// if ratio > range up then motor left
-#define RangeDown		-0.007	// if ratio < range up then motor right; between = stop
+#define StartDelay		10		// delay to start measuring after spindle start
+#define FaultDelay		30  	// if Mode.operation != Stop > FaultDelay then spindle stop
+#define RangeUp			0.01	// if ratio > range up then motor left
+#define RangeDown		-0.01	// if ratio < range up then motor right; between = stop
 #define Overfeed		0		// factor to keep wrong assembling (for example if we need asm - 10)
 
 #include <xc.h>
@@ -76,40 +59,42 @@
 #include <float.h>
 #include <avr/eeprom.h>
 
-volatile struct
+struct TimeControl
 {
-	unsigned short ms16;
-	signed short interval;
-	bool interrupt16;
-	bool interrupt992;
+	unsigned short ms;
+	bool s;
 } MainTimer;
 
-volatile struct
+struct Data
 {
 	unsigned int ovf;
 	float Ua;
 	float Up;
 } Measure;
 
-struct
+struct ModeControl
 {
-	unsigned short operation;
-	unsigned short current;
-	unsigned int delay;
-	unsigned int fuse;
+	unsigned short startDelay;
+	unsigned int faultDelay;
 	bool fault;
 	bool run;
 } Mode;
 
-volatile struct
+struct SignalControl
 {
 	bool ready;
 	bool permission;
 } Signal;
 
-void Timer0(unsigned short func)
+struct MotorControl
+{
+	bool isStep;
+	unsigned short operation;
+} Motor; 
+
+void Timer0(bool enable)
 {			  
-	if (func == ExternalCounter)
+	if (enable)
 	{
 		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);
 		TIMSK0 = (1 << TOIE0);
@@ -127,9 +112,9 @@ ISR(TIMER0_OVF_vect)
 	Measure.ovf++;
 }
 
-void Timer1(unsigned short func)
+void Timer1(bool enable)
 {
-	if (func == ExternalCounter)
+	if (enable)
 	{
 		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);
 		return;
@@ -138,11 +123,11 @@ void Timer1(unsigned short func)
 	TCCR1B = (0 << CS12)|(0 << CS11)|(0 << CS10);
 }
 
-void Timer2(unsigned short func)
+void Timer2(bool enable)
 {
-	if (func == InternalCounter)
+	if (enable)
 	{
-		TCCR2B = (1 << CS22)|(1 << CS21)|(1 << CS20);
+		TCCR2B = (1 << CS22)|(0 << CS21)|(1 << CS20);
 		TIMSK2 = (1 << TOIE2);
 		TCNT2 = 0;
 		return;
@@ -155,100 +140,21 @@ void Timer2(unsigned short func)
 
 ISR(TIMER2_OVF_vect)
 {	
-	MainTimer.ms16++;
-	MainTimer.interrupt16 = true;
+	MainTimer.ms++;
 
-	if (MainTimer.ms16 >= 62)
+	if (MainTimer.ms >= 1000)
 	{
-		MainTimer.interrupt992 = true;
-		MainTimer.ms16 = 0;
+		MainTimer.s = true;
+		MainTimer.ms = 0;
 	}
 	
-	TCNT2 = 5;
-}
-
-void USART(unsigned short option)
-{
-	switch (option)
-	{
-		case TxOn:
-			UCSR0B |= (1 << TXEN0);
-			break;
-		case TxOff:
-			UCSR0B |= (0 << TXEN0);
-			break;
-		case RxOn:
-			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
-			break;
-		case RxOff:
-			UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-			break;
-		case On:
-			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
-			break;
-		case Off:
-			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-			break;
-		default:
-			UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
-			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-			UBRR0  =  3;
-			break;
-	}
-}
-
-void TxChar(unsigned char c)
-{
-	while (!(UCSR0A & (1<<UDRE0)));
-	UDR0 = c;
-}
-
-void TxString(const char* s)
-{
-	for (int i=0; s[i]; i++) TxChar(s[i]);
-}
-
-void Transmit()
-{
-	static char buffer[TxBufferSize] = { 0 };
-	static char A[20], P[20];
-	
-	memset(buffer, 0, TxBufferSize);
-	
-	sprintf(A, "$A%.1f ", Measure.Ua);
-	sprintf(P, "$P%.1f ", Measure.Up);
-	strcat(buffer, A);
-	strcat(buffer, P);
-	
-	TxString(buffer);
-}
-
-float MovAvgAramid(float value, bool reset)
-{
-	static float result = 0;
-	
-	if (reset) result = 0;
-	
-	result += (value - result) * FilterFactor;
-	
-	return result;
-}
-
-float MovAvgPolyamide(float value, bool reset)
-{
-	static float result = 0;
-	
-	if (reset) result = 0;
-	
-	result += (value - result) * FilterFactor;
-	
-	return result;
+	TCNT2 = 130;
 }
 
 void Calculation()
-{					 
-	Measure.Ua = MovAvgAramid((255.f*Measure.ovf+TCNT0)*0.0532009867, false);
-	Measure.Up = MovAvgPolyamide(TCNT1*0.0532009867, false); 	   // 0.087964*1.008*60/100
+{		
+	Measure.Ua += ((256.f*Measure.ovf+TCNT0)*0.05277875658 - Measure.Ua) * FilterFactor;		 
+	Measure.Up += (TCNT1*0.05277875658 - Measure.Up) * FilterFactor; 	   
 }
 
 void Initialization()
@@ -262,10 +168,8 @@ void Initialization()
 	DDRD = 0b00000010;
 	PORTD = 0b00110011;
 	
-	MainTimer.ms16 = 0;
-	MainTimer.interval = 0;
-	MainTimer.interrupt16 = false;
-	MainTimer.interrupt992 = false;
+	MainTimer.ms = 0;
+	MainTimer.s = false;
 	
 	Measure.Ua = 0;
 	Measure.Up = 0;
@@ -273,180 +177,64 @@ void Initialization()
 	
 	Mode.run = false;
 	Mode.fault = false;
-	Mode.current = Waiting;
-	Mode.fuse = FaultDelay;
-	Mode.delay = 0;
-	Mode.operation = Stop;
+	Mode.faultDelay = FaultDelay;
+	Mode.startDelay = 0;
+	Motor.operation = Locked;
 	
 	Signal.ready = false;
 	Signal.permission = false;
 	
-	MovAvgAramid(0, true);
-	MovAvgPolyamide(0, true);
-	
-	Timer2(InternalCounter);
-	//USART(Init);
-	//USART(TxOn);
+	Timer2(true);
 	sei();
 }
 
-void Step(short direction)
+void Step()
 {
-	if (!Signal.permission || MainTimer.interval < 0) return;
-	
-	switch (direction)
-	{
-		case Right:
-			ImpOn; 
-			_delay_ms(7);
-			if (!MainTimer.interval) MainTimer.interval = HighIntervalR;
-			break;
-		case Left:
-			ImpOn;
-			_delay_ms(1);
-			if (!MainTimer.interval) MainTimer.interval = HighIntervalL;
-			break;
-		default:
-			ImpOff;
-			break;
-	}
-	
-	ImpOff;
-	_delay_ms(5);
+		
 }
 
-void Control()
- {
-	 if (Mode.run)
-	 {
-		 if (Mode.current == Process) return;
-		 
-		 if (Mode.current == Waiting)
-		 {
-			 LedOff;
-			 FaultOff;
-			 Mode.delay = AccelDelay;
-			 Mode.current = Acceleration;
-			 Mode.fuse = FaultDelay;
-			 Mode.fault = false;
-			 Timer0(ExternalCounter);
-			 Timer1(ExternalCounter);
-			 return;
-		 }
-		 
-		 if (Mode.current == Acceleration && !Mode.delay) 
-		 {
-			 LedOn;
-			 Mode.current = Process;
-		 }
-		 
-		 return;
-	 }
-	 
-	 if (Mode.current == Waiting) return;
-	 
-	 ImpOff;
-	 Timer0(Off);
-	 Timer1(Off);
-	 
-	 MovAvgAramid(0, true);
-	 MovAvgPolyamide(0, true);
-	 
-	 TCNT0 = 0;
-	 TCNT1 = 0;
-	 Measure.Ua = 0;
-	 Measure.Up = 0;
-	 Measure.ovf = 0;
-	 Mode.current = Waiting;
- }
-
-void Regulator()
+void Regulation()
 {
 	static float difference = 0, ratio = 0;
-	
-	if (Mode.current != Process)
-	{
-		if (Mode.operation == Stop) return;
-		Mode.operation = Stop;
-		return;
-	}
 	
 	ratio = 1 - ((Measure.Ua == 0 ? 1 : Measure.Ua) / (Measure.Up == 0 ? 1 : Measure.Up));
 	difference = Overfeed - ratio;
 	
+	if (Motor.isStep) return;
+	
 	if (difference > RangeDown && difference < RangeUp)
 	{
-		if (Mode.operation == Stop) return;
-		if (Mode.fuse < FaultDelay) Mode.fuse = FaultDelay;
-		Mode.operation = Stop;
-		Signal.ready = false;
-		Signal.permission = false;
-		MainTimer.interval = 0;
+		if (Mode.faultDelay < FaultDelay) Mode.faultDelay = FaultDelay;
 		return;
 	}
 	
-	if (difference >= RangeUp)
-	{
-		if (Mode.operation == Left)
-		{
-			Step(Left);
-			return;
-		}
-		
-		Signal.ready = true;
-		Mode.operation = Left;
-	}
-	else
-	{
-		if (Mode.operation == Right)
-		{
-			Step(Right);
-			return;
-		}
-		
-		Signal.ready = true;
-		Mode.operation = Right;
-	}
+	if (difference >= RangeUp) Motor.operation = Left;
+	else Motor.operation = Right;
+	Motor.isStep = true;
 }
-
-void InterruptMS16()
+							   
+void HandleS()
 {
-	if (MainTimer.interrupt16)
-	{		
-		MainTimer.interrupt16 = false;
-		if (Signal.permission)
+	if (MainTimer.s)
+	{	
+		if (Mode.startDelay) Mode.startDelay--;
+				
+		if (Mode.run && !Mode.startDelay)
 		{
-			if (MainTimer.interval < 0) MainTimer.interval++;
+			LedInv;
 			
-			if (MainTimer.interval > 0)
+			if (Motor.isStep)
 			{
-				MainTimer.interval--;
-				if (!MainTimer.interval)
-				{
-					if (Mode.operation == Right) MainTimer.interval = LowIntervalR;
-					if (Mode.operation == Left) MainTimer.interval = LowIntervalL;
-				}
+				Motor.isStep = false;
+				Motor.operation = Locked;
 			}
-		}
-		
-		if (!Signal.permission && Signal.ready) Signal.permission = true;
-	}	
-}
-
-void InterruptMS992()
-{
-	if (MainTimer.interrupt992)
-	{			
-		MainTimer.interrupt992 = false;
-		
-		if (Mode.current == Process || Mode.current == Acceleration)
-		{
-			Calculation();
-			//Transmit();
-
-			if (Mode.operation != Stop && Mode.fuse && !Mode.fault) Mode.fuse--;
 			
-			if (!Mode.fuse && !Mode.fault)
+			Calculation();
+			Regulation();
+
+			if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
+			
+			if (!Mode.faultDelay && !Mode.fault)
 			{
 				FaultOn;
 				Mode.fault = true;
@@ -456,11 +244,35 @@ void InterruptMS992()
 			TCNT1 = 0;
 			Measure.ovf = 0;
 		}
-		else LedInv;
 		
-		if (Mode.delay) Mode.delay--;
-		if (Running && !Mode.run) { Mode.run = true; return; }
-		if (!Running && Mode.run) Mode.run = false;
+		if (Running && !Mode.run)
+		{
+			FaultOff;
+			Mode.run = true;
+			Mode.startDelay = StartDelay;
+			Mode.faultDelay = FaultDelay;
+			Mode.fault = false;
+			Timer0(true);
+			Timer1(true);
+			return;
+		}
+		 
+		if (!Running && Mode.run)
+		{
+			ImpOff;
+			Timer0(Off);
+			Timer1(Off);
+			Measure.Ua = 0;
+			Measure.Up = 0;
+			Measure.ovf = 0;
+			Mode.run = false;
+			Mode.fault = false;
+			Mode.faultDelay = FaultDelay;
+			Mode.startDelay = 0;
+			Motor.operation = Locked;
+		}
+		
+		MainTimer.s = false;
 	}	
 }
 
@@ -469,10 +281,8 @@ int main(void)
 	Initialization();
 	
     while(1)
-    {
-		Control();		   // control current mode: waiting, acceleration, process
-		Regulator();	   // ratio calculate, motor direction control: right, left, stop
-		InterruptMS16();   // function of handling interrupt every 16 ms
-        InterruptMS992();  // function of handling interrupt every 992 ms
+    {	
+        HandleS();		   // function of handling interrupt every second
+		if (Motor.isStep) Step();
     }
 }
