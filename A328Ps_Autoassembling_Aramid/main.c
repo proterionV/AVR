@@ -33,20 +33,24 @@
 #define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
 #define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
 
-#define Off		 0
-#define On		 1
-#define Init	 2
+#define Off				0
+#define On				1
+#define Init			2
 
 #define Right	 		10
 #define Left 			20
 #define Locked			30
 								// these parameters also should be positioned in ROM
-#define FilterFactor    0.1		// Size of array to calculate average
-#define StartDelay		10		// delay to start measuring after spindle start
-#define FaultDelay		30  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			0.01	// if ratio > range up then motor left
-#define RangeDown		-0.01	// if ratio < range up then motor right; between = stop
-#define Overfeed		0		// factor to keep wrong assembling (for example if we need asm - 10)
+#define FilterFactor      0.3	// Size of array to calculate average
+#define StartDelay		  5		// delay to start measuring after spindle start
+#define FaultDelay		  600  	// if Mode.operation != Stop > FaultDelay then spindle stop
+#define RangeUp			  0.02	// if ratio > range up then motor left
+#define RangeDown		  -0.02	// if ratio < range up then motor right; between = stop
+#define Overfeed		  0		// factor to keep wrong assembling (for example if we need asm - 10)
+#define	InstantRangeUp	  0.05
+#define InstantRangeDown  -0.05
+#define LeftStepDuration  2
+#define RightStepDuration 1
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -82,13 +86,13 @@ struct ModeControl
 
 struct SignalControl
 {
-	bool ready;
-	bool permission;
+	bool instantDifferenceIsOver;
 } Signal;
 
 struct MotorControl
 {
-	bool isStep;
+	bool isDelay;
+	unsigned short isStep;
 	unsigned short operation;
 } Motor; 
 
@@ -152,9 +156,17 @@ ISR(TIMER2_OVF_vect)
 }
 
 void Calculation()
-{		
+{	
+	//static float instantRatio, instantDifference = 0;
+	
+	//if (Signal.instantDifferenceIsOver) Signal.instantDifferenceIsOver = false;
+		
 	Measure.Ua += ((256.f*Measure.ovf+TCNT0)*0.05277875658 - Measure.Ua) * FilterFactor;		 
-	Measure.Up += (TCNT1*0.05277875658 - Measure.Up) * FilterFactor; 	   
+	Measure.Up += (TCNT1*0.05277875658 - Measure.Up) * FilterFactor; 
+	//instantRatio = 1 - ((TCNT0 == 0 ? 1 : TCNT0) / (TCNT0 == 0 ? 1 : TCNT0));
+	//instantDifference = Overfeed - instantRatio;
+	
+	//if (instantDifference <= InstantRangeUp || instantDifference >= InstantRangeDown) Signal.instantDifferenceIsOver = true;  
 }
 
 void Initialization()
@@ -181,8 +193,7 @@ void Initialization()
 	Mode.startDelay = 0;
 	Motor.operation = Locked;
 	
-	Signal.ready = false;
-	Signal.permission = false;
+	Signal.instantDifferenceIsOver = false;
 	
 	Timer2(true);
 	sei();
@@ -190,7 +201,22 @@ void Initialization()
 
 void Step()
 {
-		
+	if (Motor.operation == Right) 
+	{
+		ImpOn;
+		_delay_ms(5);
+		ImpOff;
+		_delay_ms(5);	
+		return;
+	}
+	
+	if (Motor.operation == Left)
+	{
+		ImpOn;
+		_delay_us(500);
+		ImpOff;
+		_delay_ms(5);
+	}	
 }
 
 void Regulation()
@@ -200,89 +226,100 @@ void Regulation()
 	ratio = 1 - ((Measure.Ua == 0 ? 1 : Measure.Ua) / (Measure.Up == 0 ? 1 : Measure.Up));
 	difference = Overfeed - ratio;
 	
-	if (Motor.isStep) return;
-	
-	if (difference > RangeDown && difference < RangeUp)
+	if ((difference > RangeDown && difference < RangeUp))
 	{
-		if (Mode.faultDelay < FaultDelay) Mode.faultDelay = FaultDelay;
+		Mode.faultDelay = FaultDelay;
+		Motor.operation = Locked;
+		Motor.isStep = 0;
+		Motor.isDelay = false;
 		return;
 	}
 	
-	if (difference >= RangeUp) Motor.operation = Left;
-	else Motor.operation = Right;
-	Motor.isStep = true;
+	if (Motor.isStep || Motor.isDelay) return;
+	
+	if (difference >= RangeUp) 
+	{
+		Motor.operation = Left;
+		Motor.isStep = LeftStepDuration;
+	}
+	else 
+	{
+		Motor.operation = Right;
+		Motor.isStep = RightStepDuration;
+	}
 }
 							   
-void HandleS()
-{
-	if (MainTimer.s)
-	{	
-		if (Mode.startDelay) Mode.startDelay--;
-				
-		if (Mode.run && !Mode.startDelay)
-		{
-			LedInv;
-			
-			if (Motor.isStep)
-			{
-				Motor.isStep = false;
-				Motor.operation = Locked;
-			}
-			
-			Calculation();
-			Regulation();
-
-			if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
-			
-			if (!Mode.faultDelay && !Mode.fault)
-			{
-				FaultOn;
-				Mode.fault = true;
-			}
-			
-			TCNT0 = 0;
-			TCNT1 = 0;
-			Measure.ovf = 0;
-		}
-		
-		if (Running && !Mode.run)
-		{
-			FaultOff;
-			Mode.run = true;
-			Mode.startDelay = StartDelay;
-			Mode.faultDelay = FaultDelay;
-			Mode.fault = false;
-			Timer0(true);
-			Timer1(true);
-			return;
-		}
-		 
-		if (!Running && Mode.run)
-		{
-			ImpOff;
-			Timer0(Off);
-			Timer1(Off);
-			Measure.Ua = 0;
-			Measure.Up = 0;
-			Measure.ovf = 0;
-			Mode.run = false;
-			Mode.fault = false;
-			Mode.faultDelay = FaultDelay;
-			Mode.startDelay = 0;
-			Motor.operation = Locked;
-		}
-		
-		MainTimer.s = false;
-	}	
-}
-
 int main(void)
 {
 	Initialization();
 	
     while(1)
     {	
-        HandleS();		   // function of handling interrupt every second
-		if (Motor.isStep) Step();
+		if (MainTimer.s)
+		{
+			if (Mode.startDelay) Mode.startDelay--;
+			
+			if (Mode.run && !Mode.startDelay)
+			{
+				LedInv;
+				
+				if (Motor.isDelay) Motor.isDelay = false;
+				
+				if (Motor.isStep) 
+				{
+					Motor.isStep--;
+					if (!Motor.isStep) Motor.isDelay = true;
+				}
+				
+				Calculation();
+				Regulation();
+
+				if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
+				
+				if (!Mode.faultDelay && !Mode.fault)
+				{
+					FaultOn;
+					Mode.fault = true;
+				}
+				
+				TCNT0 = 0;
+				TCNT1 = 0;
+				Measure.ovf = 0;
+			}
+			
+			if (Running && !Mode.run)
+			{
+				FaultOff;
+				Mode.run = true;
+				Mode.startDelay = StartDelay;
+				Mode.faultDelay = FaultDelay;
+				Mode.fault = false;
+				Timer0(true);
+				Timer1(true);
+			}
+			
+			if (!Running && Mode.run)
+			{
+				LedOff;
+				ImpOff;
+				Timer0(Off);
+				Timer1(Off);
+				Measure.Ua = 0;
+				Measure.Up = 0;
+				Measure.ovf = 0;
+				Mode.run = false;
+				Mode.fault = false;
+				Mode.faultDelay = FaultDelay;
+				Mode.startDelay = 0;
+				Motor.operation = Locked;
+			}
+			
+			MainTimer.s = false;
+		}
+		
+		if (Motor.isStep)
+		{
+			Step();
+		}
     }
 }
