@@ -7,15 +7,15 @@
 
 #define F_CPU   16000000L
 
-#define Check(REG,BIT) (REG &  (1<<BIT))
-#define Inv(REG,BIT)   (REG ^= (1<<BIT)) 
-#define High(REG,BIT)  (REG |= (1<<BIT))
-#define Low(REG,BIT)   (REG &= (0<<BIT))  
+#define Check(REG,BIT) (REG &  _BV(BIT))
+#define Inv(REG,BIT)   (REG ^= _BV(BIT)) 
+#define High(REG,BIT)  (REG |= _BV(BIT))
+#define Low(REG,BIT)   (REG &= ~_BV(BIT))  
 
-#define Led     Check(PORTB, 5)
-#define LedOn   High(PORTB, 5)
-#define LedOff  Low(PORTB, 5)
-#define LedInv  Inv(PORTB, 5)
+#define Led     Check(PORTB, PORTB5)
+#define LedOn   High(PORTB, PORTB5)
+#define LedOff  Low(PORTB, PORTB5)
+#define LedInv  Inv(PORTB, PORTB5)
 
 #define True	1
 #define False	0
@@ -42,15 +42,15 @@
 
 //#define ImpOn  Low(PORTD, 7)
 //#define ImpOff High(PORTD, 7)
-#define ImpOn  High(PORTD, 3)
-#define ImpOff Low(PORTD, 3)
-#define ImpInv Inv(PORTD, 3)
+#define ImpOn  High(PORTD, PORTB3)
+#define ImpOff Low(PORTD, PORTB3)
+#define ImpInv Inv(PORTD, PORTB3)
 
-#define ServoUp		 High(PORTB, 1)
-#define	ServoDown 	 Low(PORTB, 1)
-#define ServoCommand (Check(PINC, 0))
+#define ServoUp		 High(PORTB, PORTB1)
+#define	ServoDown 	 Low(PORTB, PORTB1)
+#define ServoCommand (Check(PINC, PINC0))
 
-#define Active		(!Check(PIND, 2))
+#define Active		(!Check(PIND, PIND2))
 
 #define Counter		0
 #define Oscillator  1
@@ -146,7 +146,7 @@ struct
 	float humidity;
 } Env;
 
-struct 
+struct
 {
 	char ip[16];
 	unsigned int port;
@@ -207,7 +207,7 @@ ISR(ADC_vect)
 
 ISR(ANALOG_COMP_vect)
 {
-	LedOn;
+	LedInv;
 }
 
 void Timer0(bool enable)
@@ -261,15 +261,14 @@ void Timer2(bool enable)
 	TCNT2 = 0;
 }
  
-void Comparator(bool enable)
+void Comparator()
 {
-	if (enable)
-	{
-		ACSR |= (0<<ACD)|(1<<ACBG)|(0<<ACI)|(1<<ACIE)|(0<<ACIC)|(0<<ACIS1)|(0<<ACIS0);
-		DIDR1 |= (1<<AIN1D)|(1<<AIN0D);
-	}	
-	
-	ACSR |= (1<<ACD);
+	Low(ADCSRA, ADEN);
+	Low(ADCSRB, ACME);
+	Low(ACSR, ACI);
+	High(ACSR, ACBG);
+	High(ACSR, ACIE);
+	High(ACSR, ACIS1);
 }
  
 void EraseUnits(int x, int y, int offset, float count)
@@ -370,9 +369,9 @@ void USART(unsigned short option)
 			UCSR0B |= (1 << TXEN0);
 			break;
 		default:
-			UCSR0B = (1 << TXEN0) | (1 << RXEN0) | (1 << RXCIE0);
+			UCSR0B = (1 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
 			UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
-			UBRR0L = 0;	 // 1 MBit/s
+			UBRR0L = 3;	 // 250000 b/s
 			break;
 	}
 }
@@ -407,9 +406,9 @@ void TxString(const char* s)
 void Transmit()
 {
 	static char frequency[20], tension[20];
-	sprintf(frequency, "F%.1f$", DDS.setting);
+	//sprintf(frequency, "F%.2f$", DDS.frequency);
 	sprintf(tension, "Tn%.2f", Convert.tension);
-	TxString(tension);
+	TxString(frequency);
 }
 
 void Receive()
@@ -600,32 +599,15 @@ int main(void)
 	DDRC = 0b00000000;
 	PORTC = 0b11000000;
 	
-	DDRD = 0b00001000;
-	PORTD = 0b00110100;
+	DDRD = 0b00001010;
+	PORTD = 0b00110111;
 	
-	//lcd_init(LCD_DISP_ON);
-	//lcd_led(false);
-	//lcd_clrscr();
-	//lcd_home();
-	
-	//Timer0(false);
 	Timer1(Counter);
-	//Timer2(false);
-	//USART(Off);
-	//Converter(Off);
-	Comparator(true);
+	Comparator();
 	sei();
 	
 	while(1)
 	{	
-		Control();
-		
-		//if (Rx.byteReceived)
-		//{
-			//Receive();
-			//Rx.byteReceived = 0;
-		//}
-		
 		if (MainTimer.isr)
 		{
 
@@ -635,14 +617,13 @@ int main(void)
 		
 		if (MainTimer.ms200)
 		{
-			LedInv;
+
 			MainTimer.ms200 = 0;
 		}
 		
 		if (MainTimer.ms1000)
 		{
 			MainTimer.sec++;
-			//DisplayPrint();
 			if (MainTimer.sec >= 59) MainTimer.sec = 0;
 			MainTimer.ms1000 = 0;
 		}

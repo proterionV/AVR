@@ -41,16 +41,17 @@
 #define Left 			20
 #define Locked			30
 								// these parameters also should be positioned in ROM
-#define FilterFactor      0.3	// Size of array to calculate average
-#define StartDelay		  5		// delay to start measuring after spindle start
-#define FaultDelay		  600  	// if Mode.operation != Stop > FaultDelay then spindle stop
+#define FilterFactor      0.09	// Size of array to calculate average
+#define StartDelay		  10	// delay to start measuring after spindle start
+#define FaultDelay		  900  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			  0.02	// if ratio > range up then motor left
 #define RangeDown		  -0.02	// if ratio < range up then motor right; between = stop
 #define Overfeed		  0		// factor to keep wrong assembling (for example if we need asm - 10)
 #define	InstantRangeUp	  0.05
 #define InstantRangeDown  -0.05
-#define LeftStepDuration  2
-#define RightStepDuration 1
+#define LeftStepDuration  1
+#define RightStepDuration 2
+#define PauseBetweenSteps 3
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -71,7 +72,7 @@ struct TimeControl
 
 struct Data
 {
-	unsigned int ovf;
+	unsigned int Fp;
 	float Ua;
 	float Up;
 } Measure;
@@ -91,30 +92,10 @@ struct SignalControl
 
 struct MotorControl
 {
-	bool isDelay;
+	unsigned short isDelay;
 	unsigned short isStep;
 	unsigned short operation;
 } Motor; 
-
-void Timer0(bool enable)
-{			  
-	if (enable)
-	{
-		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);
-		TIMSK0 = (1 << TOIE0);
-		TCNT0 = 0;
-		return;
-	}
-	
-	TCCR0B = (0 << CS02)|(0 << CS01)|(0 << CS00);
-	TIMSK0 = (0 << TOIE0);
-	TCNT0 = 0;
-}
-
-ISR(TIMER0_OVF_vect)
-{
-	Measure.ovf++;
-}
 
 void Timer1(bool enable)
 {
@@ -155,14 +136,81 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 130;
 }
 
+ISR(ANALOG_COMP_vect)
+{
+	Measure.Fp++;
+}
+
+void Comparator(unsigned int option)
+{
+	switch(option)
+	{
+		case On:
+			High(ACSR, ACIE);
+			break;
+		case Off:
+			Low(ACSR, ACIE);
+		default:
+			Low(ADCSRA, ADEN);
+			Low(ADCSRB, ACME);
+			Low(ACSR, ACI);
+			High(ACSR, ACBG);
+			Low(ACSR, ACIE);
+			High(ACSR, ACIS1);
+			break;
+	}
+}
+
+void USART(unsigned short option)
+{
+	switch (option)
+	{
+		case On:
+		UCSR0B |= (1 << TXEN0);
+		break;
+		case Off:
+		UCSR0B |= (0 << TXEN0);
+		break;
+		default:
+		UCSR0B = (0 << TXEN0) | (0 << RXEN0) | (0 << RXCIE0);
+		UCSR0C = (1 << UCSZ01) | (1 << UCSZ00);
+		UBRR0  =  3;
+		break;
+	}
+}
+
+void TxChar(unsigned char c)
+{
+	while (!(UCSR0A & (1<<UDRE0)));
+	UDR0 = c;
+}
+
+void TxString(const char* s)
+{
+	for (int i=0; s[i]; i++) TxChar(s[i]);
+}
+
+void Transmit()
+{
+	static char fa[20], fp[20];
+	sprintf(fa, "A%.2f$", Measure.Ua);
+	sprintf(fp, " P%.2f", Measure.Up);
+	TxString(fa);
+	TxString(fp);
+}
+
 void Calculation()
 {	
 	//static float instantRatio, instantDifference = 0;
 	
 	//if (Signal.instantDifferenceIsOver) Signal.instantDifferenceIsOver = false;
-		
-	Measure.Ua += ((256.f*Measure.ovf+TCNT0)*0.05277875658 - Measure.Ua) * FilterFactor;		 
-	Measure.Up += (TCNT1*0.05277875658 - Measure.Up) * FilterFactor; 
+	
+	
+	// F*0.05277875658
+							
+	Measure.Ua += (TCNT1*0.05277875658 - Measure.Ua) * FilterFactor;	
+	Measure.Up += (Measure.Fp*0.05277875658 - Measure.Up) * FilterFactor;	
+		 
 	//instantRatio = 1 - ((TCNT0 == 0 ? 1 : TCNT0) / (TCNT0 == 0 ? 1 : TCNT0));
 	//instantDifference = Overfeed - instantRatio;
 	
@@ -185,7 +233,7 @@ void Initialization()
 	
 	Measure.Ua = 0;
 	Measure.Up = 0;
-	Measure.ovf = 0;
+	Measure.Fp = 0;
 	
 	Mode.run = false;
 	Mode.fault = false;
@@ -196,27 +244,21 @@ void Initialization()
 	Signal.instantDifferenceIsOver = false;
 	
 	Timer2(true);
+	Comparator(Init);
+	USART(Init);
+	USART(On);
 	sei();
 }
 
 void Step()
 {
-	if (Motor.operation == Right) 
-	{
-		ImpOn;
-		_delay_ms(5);
-		ImpOff;
-		_delay_ms(5);	
-		return;
-	}
+	ImpOn;
 	
-	if (Motor.operation == Left)
-	{
-		ImpOn;
-		_delay_us(500);
-		ImpOff;
-		_delay_ms(5);
-	}	
+	if (Motor.operation == Left) _delay_ms(1);		// for non-inverted circuit 500 us, inverted - 1 ms
+	if (Motor.operation == Right) _delay_ms(5);		// for non-inverted circuit 5 ms, inverted - 7 ms
+	
+	ImpOff;
+	_delay_ms(5); // both
 }
 
 void Regulation()
@@ -263,16 +305,17 @@ int main(void)
 			{
 				LedInv;
 				
-				if (Motor.isDelay) Motor.isDelay = false;
+				if (Motor.isDelay > 0) Motor.isDelay--;
 				
 				if (Motor.isStep) 
 				{
 					Motor.isStep--;
-					if (!Motor.isStep) Motor.isDelay = true;
+					if (!Motor.isStep) Motor.isDelay = PauseBetweenSteps;
 				}
 				
 				Calculation();
 				Regulation();
+				Transmit();
 
 				if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
 				
@@ -282,9 +325,8 @@ int main(void)
 					Mode.fault = true;
 				}
 				
-				TCNT0 = 0;
 				TCNT1 = 0;
-				Measure.ovf = 0;
+				Measure.Fp = 0;
 			}
 			
 			if (Running && !Mode.run)
@@ -294,19 +336,19 @@ int main(void)
 				Mode.startDelay = StartDelay;
 				Mode.faultDelay = FaultDelay;
 				Mode.fault = false;
-				Timer0(true);
 				Timer1(true);
+				Comparator(On);
 			}
 			
 			if (!Running && Mode.run)
 			{
 				LedOff;
 				ImpOff;
-				Timer0(Off);
-				Timer1(Off);
+				Timer1(false);
+				Comparator(Off);
 				Measure.Ua = 0;
 				Measure.Up = 0;
-				Measure.ovf = 0;
+				Measure.Fp = 0;
 				Mode.run = false;
 				Mode.fault = false;
 				Mode.faultDelay = FaultDelay;
