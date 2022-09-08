@@ -44,14 +44,14 @@
 #define FilterFactor      0.09	// Size of array to calculate average
 #define StartDelay		  10	// delay to start measuring after spindle start
 #define FaultDelay		  900  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.02	// if ratio > range up then motor left
-#define RangeDown		  -0.02	// if ratio < range up then motor right; between = stop
+#define RangeUp			  0.01	// if ratio > range up then motor left
+#define RangeDown		  -0.01	// if ratio < range up then motor right; between = stop
 #define Overfeed		  0		// factor to keep wrong assembling (for example if we need asm - 10)
 #define	InstantRangeUp	  0.05
 #define InstantRangeDown  -0.05
-#define LeftStepDuration  1
-#define RightStepDuration 2
-#define PauseBetweenSteps 3
+#define LeftStepDuration  1		 // inv 1
+#define RightStepDuration 2		 // in 2
+#define PauseBetweenSteps 5		 // inv 5
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -72,6 +72,7 @@ struct TimeControl
 
 struct Data
 {
+	unsigned int Fa;
 	unsigned int Fp;
 	float Ua;
 	float Up;
@@ -193,28 +194,72 @@ void TxString(const char* s)
 void Transmit()
 {
 	static char fa[20], fp[20];
+	static char buffer[100];
+		
+	memset(buffer, 0, 100);
+	
 	sprintf(fa, "A%.2f$", Measure.Ua);
-	sprintf(fp, " P%.2f", Measure.Up);
-	TxString(fa);
-	TxString(fp);
+	sprintf(fp, "P%.2f$", Measure.Up);
+	strcat(buffer, fa);
+	strcat(buffer, fp);
+	TxString(buffer);
+}
+
+float KalmanAramid(float aramidFrequecy, bool reset)
+{
+	static float measureVariation = 90, estimateVariation = 1, speedVariation = 0.05;
+	static float CurrentEstimate = 0;
+	static float LastEstimate = 0;
+	static float Gain = 0;
+	
+	if (reset)
+	{
+		CurrentEstimate = 0;
+		LastEstimate = 0;
+		Gain = 0;
+	}
+	
+	Gain = estimateVariation / (estimateVariation + measureVariation);
+	CurrentEstimate = LastEstimate + Gain * (aramidFrequecy - LastEstimate);
+	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
+	LastEstimate = CurrentEstimate;
+	return CurrentEstimate;	
+}
+
+float KalmanPolyamide(float polyamideFrequency, bool reset)
+{
+	static float measureVariation = 90, estimateVariation = 1, speedVariation = 0.05;
+	static float CurrentEstimate = 0;
+	static float LastEstimate = 0;
+	static float Gain = 0;
+	
+	if (reset)
+	{
+		CurrentEstimate = 0;
+		LastEstimate = 0;
+		Gain = 0;
+	}
+	
+	Gain = estimateVariation / (estimateVariation + measureVariation);
+	CurrentEstimate = LastEstimate + Gain * (polyamideFrequency - LastEstimate);
+	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
+	LastEstimate = CurrentEstimate;
+	return CurrentEstimate;	
 }
 
 void Calculation()
 {	
-	//static float instantRatio, instantDifference = 0;
+	static float speedA = 0, speedP = 0;
 	
-	//if (Signal.instantDifferenceIsOver) Signal.instantDifferenceIsOver = false;
+	speedA = KalmanAramid(TCNT1, false);
+	speedP = KalmanPolyamide(Measure.Fp, false);
 	
+	Measure.Ua = speedA*0.05277875658;
+	Measure.Up = speedP*0.05277875658;
 	
-	// F*0.05277875658
-							
-	Measure.Ua += (TCNT1*0.05277875658 - Measure.Ua) * FilterFactor;	
-	Measure.Up += (Measure.Fp*0.05277875658 - Measure.Up) * FilterFactor;	
-		 
-	//instantRatio = 1 - ((TCNT0 == 0 ? 1 : TCNT0) / (TCNT0 == 0 ? 1 : TCNT0));
-	//instantDifference = Overfeed - instantRatio;
-	
-	//if (instantDifference <= InstantRangeUp || instantDifference >= InstantRangeDown) Signal.instantDifferenceIsOver = true;  
+	//Measure.Fa = TCNT1;						
+	//Measure.Ua += (Measure.Fa*0.05277875658 - Measure.Ua) * FilterFactor;	
+	//Measure.Up += (Measure.Fp*0.05277875658 - Measure.Up) * FilterFactor;		
 }
 
 void Initialization()
@@ -243,6 +288,9 @@ void Initialization()
 	
 	Signal.instantDifferenceIsOver = false;
 	
+	KalmanAramid(0, true);
+	KalmanPolyamide(0, true);
+	
 	Timer2(true);
 	Comparator(Init);
 	USART(Init);
@@ -254,8 +302,8 @@ void Step()
 {
 	ImpOn;
 	
-	if (Motor.operation == Left) _delay_ms(1);		// for non-inverted circuit 500 us, inverted - 1 ms
-	if (Motor.operation == Right) _delay_ms(5);		// for non-inverted circuit 5 ms, inverted - 7 ms
+	if (Motor.operation == Right) _delay_us(500);		// for non-inverted circuit 500 us, inverted - 1 ms
+	if (Motor.operation == Left) _delay_ms(5);		// for non-inverted circuit 5 ms, inverted - 7 ms
 	
 	ImpOff;
 	_delay_ms(5); // both
@@ -324,9 +372,6 @@ int main(void)
 					FaultOn;
 					Mode.fault = true;
 				}
-				
-				TCNT1 = 0;
-				Measure.Fp = 0;
 			}
 			
 			if (Running && !Mode.run)
@@ -346,6 +391,8 @@ int main(void)
 				ImpOff;
 				Timer1(false);
 				Comparator(Off);
+				KalmanAramid(0, true);
+				KalmanPolyamide(0, true);
 				Measure.Ua = 0;
 				Measure.Up = 0;
 				Measure.Fp = 0;
@@ -354,6 +401,12 @@ int main(void)
 				Mode.faultDelay = FaultDelay;
 				Mode.startDelay = 0;
 				Motor.operation = Locked;
+			}
+			
+			if (Mode.run)
+			{
+				TCNT1 = 0;
+				Measure.Fp = 0;
 			}
 			
 			MainTimer.s = false;
