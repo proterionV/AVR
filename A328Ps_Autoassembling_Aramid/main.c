@@ -47,11 +47,15 @@
 #define RangeUp			  0.01	// if ratio > range up then motor left
 #define RangeDown		  -0.01	// if ratio < range up then motor right; between = stop
 #define Overfeed		  0		// factor to keep wrong assembling (for example if we need asm - 10)
-#define	InstantRangeUp	  0.05
-#define InstantRangeDown  -0.05
-#define LeftStepDuration  1		 // inv 1
-#define RightStepDuration 2		 // in 2
-#define PauseBetweenSteps 5		 // inv 5
+#define	InstantRangeUp	  0.02
+#define InstantRangeDown  -0.02
+#define LeftStepDuration  3		 // inv 1
+#define RightStepDuration 3		 // in 2
+#define PauseBetweenSteps 2		 // inv 5
+
+//#define LeftStepDuration  1		 // inv 1
+//#define RightStepDuration 2		 // in 2
+//#define PauseBetweenSteps 5		 // inv 5
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -67,11 +71,12 @@
 struct TimeControl
 {
 	unsigned short ms;
-	bool s;
+	bool ms100, s;
 } MainTimer;
 
 struct Data
 {
+	unsigned short ovf;
 	unsigned int Fa;
 	unsigned int Fp;
 	float Ua;
@@ -98,6 +103,23 @@ struct MotorControl
 	unsigned short operation;
 } Motor; 
 
+void Timer0(bool enable)
+{
+	if (enable)
+	{
+		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);
+		High(TIMSK0, TOIE0);
+		return;
+	}
+	
+	TCCR0B = 0x00;
+}
+
+ISR(TIMER0_OVF_vect)
+{
+	Measure.ovf++;
+}
+
 void Timer1(bool enable)
 {
 	if (enable)
@@ -106,7 +128,7 @@ void Timer1(bool enable)
 		return;
 	}
 	
-	TCCR1B = (0 << CS12)|(0 << CS11)|(0 << CS10);
+	TCCR1B = 0x00;
 }
 
 void Timer2(bool enable)
@@ -119,14 +141,16 @@ void Timer2(bool enable)
 		return;
 	}
 	
-	TCCR2B = (0 << CS22)|(0 << CS21)|(0 << CS20);
-	TIMSK2 = (0 << TOIE2);
+	TCCR2B = 0x00;
+	Low(TIMSK2,TOIE2);
 	TCNT2 = 0;
 }
 
 ISR(TIMER2_OVF_vect)
 {	
 	MainTimer.ms++;
+
+	if (MainTimer.ms % 100 == 0) MainTimer.ms100 = true;
 
 	if (MainTimer.ms >= 1000)
 	{
@@ -207,7 +231,7 @@ void Transmit()
 
 float KalmanAramid(float aramidFrequecy, bool reset)
 {
-	static float measureVariation = 90, estimateVariation = 1, speedVariation = 0.05;
+	static float measureVariation = 90, estimateVariation = 1, speedVariation = 0.02;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -228,7 +252,7 @@ float KalmanAramid(float aramidFrequecy, bool reset)
 
 float KalmanPolyamide(float polyamideFrequency, bool reset)
 {
-	static float measureVariation = 90, estimateVariation = 1, speedVariation = 0.05;
+	static float measureVariation = 90, estimateVariation = 1, speedVariation = 0.02;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -251,15 +275,12 @@ void Calculation()
 {	
 	static float speedA = 0, speedP = 0;
 	
-	speedA = KalmanAramid(TCNT1, false);
-	speedP = KalmanPolyamide(Measure.Fp, false);
+	speedA = KalmanAramid(TCNT1*10, false);
+	speedP = KalmanPolyamide((TCNT0+Measure.ovf*256)*10, false);
+	//speedP = KalmanPolyamide(Measure.Fp*5, false);
 	
 	Measure.Ua = speedA*0.05277875658;
-	Measure.Up = speedP*0.05277875658;
-	
-	//Measure.Fa = TCNT1;						
-	//Measure.Ua += (Measure.Fa*0.05277875658 - Measure.Ua) * FilterFactor;	
-	//Measure.Up += (Measure.Fp*0.05277875658 - Measure.Up) * FilterFactor;		
+	Measure.Up = speedP*0.05277875658;		
 }
 
 void Initialization()
@@ -292,7 +313,7 @@ void Initialization()
 	KalmanPolyamide(0, true);
 	
 	Timer2(true);
-	Comparator(Init);
+	//Comparator(Init);
 	USART(Init);
 	USART(On);
 	sei();
@@ -302,8 +323,14 @@ void Step()
 {
 	ImpOn;
 	
+	 //sp1
 	if (Motor.operation == Right) _delay_us(500);		// for non-inverted circuit 500 us, inverted - 1 ms
 	if (Motor.operation == Left) _delay_ms(5);		// for non-inverted circuit 5 ms, inverted - 7 ms
+	
+	// rest
+	//if (Motor.operation == Left) _delay_ms(1);		// for non-inverted circuit 500 us, inverted - 1 ms
+	//if (Motor.operation == Right) _delay_ms(5);		// for non-inverted circuit 500 us, inverted - 1 ms
+
 	
 	ImpOff;
 	_delay_ms(5); // both
@@ -338,13 +365,32 @@ void Regulation()
 		Motor.isStep = RightStepDuration;
 	}
 }
-							   
+							   					
 int main(void)
 {
 	Initialization();
 	
     while(1)
     {	
+		if (MainTimer.ms100)
+		{
+			if (Mode.run && !Mode.startDelay)
+			{
+				Calculation();
+				Transmit();
+			}
+			
+			if (Mode.run)
+			{
+				TCNT0 = 0;
+				TCNT1 = 0;
+				Measure.Fp = 0;
+				Measure.ovf = 0;
+			}
+			
+			MainTimer.ms100 = false;
+		}
+		
 		if (MainTimer.s)
 		{
 			if (Mode.startDelay) Mode.startDelay--;
@@ -352,6 +398,8 @@ int main(void)
 			if (Mode.run && !Mode.startDelay)
 			{
 				LedInv;
+				
+				Regulation();
 				
 				if (Motor.isDelay > 0) Motor.isDelay--;
 				
@@ -361,9 +409,9 @@ int main(void)
 					if (!Motor.isStep) Motor.isDelay = PauseBetweenSteps;
 				}
 				
-				Calculation();
-				Regulation();
-				Transmit();
+				//Calculation();
+				//Regulation();
+				//Transmit();
 
 				if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
 				
@@ -381,16 +429,18 @@ int main(void)
 				Mode.startDelay = StartDelay;
 				Mode.faultDelay = FaultDelay;
 				Mode.fault = false;
+				Timer0(true);
 				Timer1(true);
-				Comparator(On);
+				//Comparator(On);
 			}
 			
 			if (!Running && Mode.run)
 			{
 				LedOff;
 				ImpOff;
+				Timer0(false);
 				Timer1(false);
-				Comparator(Off);
+				//Comparator(Off);
 				KalmanAramid(0, true);
 				KalmanPolyamide(0, true);
 				Measure.Ua = 0;
@@ -401,12 +451,6 @@ int main(void)
 				Mode.faultDelay = FaultDelay;
 				Mode.startDelay = 0;
 				Motor.operation = Locked;
-			}
-			
-			if (Mode.run)
-			{
-				TCNT1 = 0;
-				Measure.Fp = 0;
 			}
 			
 			MainTimer.s = false;
