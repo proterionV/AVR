@@ -41,21 +41,19 @@
 #define Left 			20
 #define Locked			30
 								// these parameters also should be positioned in ROM
-#define FilterFactor      0.09	// Size of array to calculate average
-#define StartDelay		  10	// delay to start measuring after spindle start
+#define StartDelay		  30	// delay to start measuring after spindle start
 #define FaultDelay		  900  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.01	// if ratio > range up then motor left
-#define RangeDown		  -0.01	// if ratio < range up then motor right; between = stop
+#define RangeUp			  0.003	// if ratio > range up then motor left
+#define RangeDown		  -0.003	// if ratio < range up then motor right; between = stop
 #define Overfeed		  0		// factor to keep wrong assembling (for example if we need asm - 10)
-#define	InstantRangeUp	  0.02
-#define InstantRangeDown  -0.02
-#define LeftStepDuration  3		 // inv 1
-#define RightStepDuration 3		 // in 2
-#define PauseBetweenSteps 2		 // inv 5
-
-//#define LeftStepDuration  1		 // inv 1
-//#define RightStepDuration 2		 // in 2
-//#define PauseBetweenSteps 5		 // inv 5
+#define	InstantRangeUp	  0.005
+#define InstantRangeDown  -0.005
+#define LeftStepDuration  3		 // sp1
+#define RightStepDuration 3		 // sp1
+#define PauseBetweenSteps 7		 // sp1
+//#define LeftStepDuration  2		 // rest sps
+//#define RightStepDuration 2		 // rest sps
+//#define PauseBetweenSteps 7		// rest sps
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -231,7 +229,7 @@ void Transmit()
 
 float KalmanAramid(float aramidFrequecy, bool reset)
 {
-	static float measureVariation = 90, estimateVariation = 1, speedVariation = 0.02;
+	static float measureVariation = 50, estimateVariation = 1, speedVariation = 0.01;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -252,7 +250,7 @@ float KalmanAramid(float aramidFrequecy, bool reset)
 
 float KalmanPolyamide(float polyamideFrequency, bool reset)
 {
-	static float measureVariation = 90, estimateVariation = 1, speedVariation = 0.02;
+	static float measureVariation = 60, estimateVariation = 1, speedVariation = 0.01;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -275,12 +273,12 @@ void Calculation()
 {	
 	static float speedA = 0, speedP = 0;
 	
-	speedA = KalmanAramid(TCNT1*10, false);
-	speedP = KalmanPolyamide((TCNT0+Measure.ovf*256)*10, false);
-	//speedP = KalmanPolyamide(Measure.Fp*5, false);
+	speedA = KalmanAramid(TCNT1, false);
+	speedP = KalmanPolyamide(TCNT0+(Measure.ovf*254), false);
+	//speedP = KalmanPolyamide(Measure.Fp*10, false);
 	
-	Measure.Ua = speedA*0.05277875658;
-	Measure.Up = speedP*0.05277875658;		
+	Measure.Ua = speedA;//*0.05277875658;
+	Measure.Up = speedP;//*0.05277875658;		
 }
 
 void Initialization()
@@ -292,7 +290,7 @@ void Initialization()
 	PORTC = 0b11000000;
 	
 	DDRD = 0b00000010;
-	PORTD = 0b00110011;
+	PORTD = 0b00100011;
 	
 	MainTimer.ms = 0;
 	MainTimer.s = false;
@@ -314,8 +312,8 @@ void Initialization()
 	
 	Timer2(true);
 	//Comparator(Init);
-	USART(Init);
-	USART(On);
+	//USART(Init);
+	//USART(On);
 	sei();
 }
 
@@ -377,7 +375,6 @@ int main(void)
 			if (Mode.run && !Mode.startDelay)
 			{
 				Calculation();
-				Transmit();
 			}
 			
 			if (Mode.run)
@@ -398,9 +395,7 @@ int main(void)
 			if (Mode.run && !Mode.startDelay)
 			{
 				LedInv;
-				
-				Regulation();
-				
+			
 				if (Motor.isDelay > 0) Motor.isDelay--;
 				
 				if (Motor.isStep) 
@@ -410,7 +405,7 @@ int main(void)
 				}
 				
 				//Calculation();
-				//Regulation();
+				Regulation();
 				//Transmit();
 
 				if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
