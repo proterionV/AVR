@@ -43,17 +43,17 @@
 								// these parameters also should be positioned in ROM
 #define StartDelay		  30	// delay to start measuring after spindle start
 #define FaultDelay		  900  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.003	// if ratio > range up then motor left
-#define RangeDown		  -0.003	// if ratio < range up then motor right; between = stop
+//#define RangeUp			  0.004	// if ratio > range up then motor left
+//#define RangeDown		  -0.004	// if ratio < range up then motor right; between = stop
+#define RangeUp			  0.002	// if ratio > range up then motor left
+#define RangeDown		  -0.002
 #define Overfeed		  0		// factor to keep wrong assembling (for example if we need asm - 10)
-#define	InstantRangeUp	  0.005
-#define InstantRangeDown  -0.005
-#define LeftStepDuration  3		 // sp1
-#define RightStepDuration 3		 // sp1
-#define PauseBetweenSteps 7		 // sp1
+#define LeftStepDuration  2		 // sp1
+#define RightStepDuration 2		 // sp1
+#define PauseBetweenSteps 10		 // sp1
 //#define LeftStepDuration  2		 // rest sps
 //#define RightStepDuration 2		 // rest sps
-//#define PauseBetweenSteps 7		// rest sps
+//#define PauseBetweenSteps 12		// rest sps
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -79,6 +79,7 @@ struct Data
 	unsigned int Fp;
 	float Ua;
 	float Up;
+	float D;
 } Measure;
 
 struct ModeControl
@@ -89,16 +90,12 @@ struct ModeControl
 	bool run;
 } Mode;
 
-struct SignalControl
-{
-	bool instantDifferenceIsOver;
-} Signal;
-
 struct MotorControl
 {
 	unsigned short isDelay;
 	unsigned short isStep;
 	unsigned short operation;
+	unsigned short direction;
 } Motor; 
 
 void Timer0(bool enable)
@@ -215,21 +212,25 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char fa[20], fp[20];
+	static char fa[20], fp[20], d[20], m[20];
 	static char buffer[100];
 		
 	memset(buffer, 0, 100);
 	
 	sprintf(fa, "A%.2f$", Measure.Ua);
 	sprintf(fp, "P%.2f$", Measure.Up);
+	sprintf(d, "D%.3f$", Measure.D);
+	sprintf(m, "M%d&", Motor.direction);
 	strcat(buffer, fa);
 	strcat(buffer, fp);
+	strcat(buffer, d);
+	strcat(buffer, m);
 	TxString(buffer);
 }
 
 float KalmanAramid(float aramidFrequecy, bool reset)
 {
-	static float measureVariation = 50, estimateVariation = 1, speedVariation = 0.01;
+	static float measureVariation = 50, estimateVariation = 1, speedVariation = 0.05;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -250,7 +251,7 @@ float KalmanAramid(float aramidFrequecy, bool reset)
 
 float KalmanPolyamide(float polyamideFrequency, bool reset)
 {
-	static float measureVariation = 60, estimateVariation = 1, speedVariation = 0.01;
+	static float measureVariation = 60, estimateVariation = 1, speedVariation = 0.05;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -274,8 +275,8 @@ void Calculation()
 	static float speedA = 0, speedP = 0;
 	
 	speedA = KalmanAramid(TCNT1, false);
-	speedP = KalmanPolyamide(TCNT0+(Measure.ovf*254), false);
-	//speedP = KalmanPolyamide(Measure.Fp*10, false);
+	speedP = KalmanPolyamide(TCNT0+(Measure.ovf*256), false);
+	//speedP = KalmanPolyamide(Measure.Fp, false);
 	
 	Measure.Ua = speedA;//*0.05277875658;
 	Measure.Up = speedP;//*0.05277875658;		
@@ -290,7 +291,7 @@ void Initialization()
 	PORTC = 0b11000000;
 	
 	DDRD = 0b00000010;
-	PORTD = 0b00100011;
+	PORTD = 0b00000011;
 	
 	MainTimer.ms = 0;
 	MainTimer.s = false;
@@ -304,8 +305,6 @@ void Initialization()
 	Mode.faultDelay = FaultDelay;
 	Mode.startDelay = 0;
 	Motor.operation = Locked;
-	
-	Signal.instantDifferenceIsOver = false;
 	
 	KalmanAramid(0, true);
 	KalmanPolyamide(0, true);
@@ -322,12 +321,12 @@ void Step()
 	ImpOn;
 	
 	 //sp1
-	if (Motor.operation == Right) _delay_us(500);		// for non-inverted circuit 500 us, inverted - 1 ms
-	if (Motor.operation == Left) _delay_ms(5);		// for non-inverted circuit 5 ms, inverted - 7 ms
+	//if (Motor.operation == Right) _delay_us(500);		// for non-inverted circuit 500 us, inverted - 1 ms
+	//if (Motor.operation == Left) _delay_ms(5);		// for non-inverted circuit 5 ms, inverted - 7 ms
 	
 	// rest
-	//if (Motor.operation == Left) _delay_ms(1);		// for non-inverted circuit 500 us, inverted - 1 ms
-	//if (Motor.operation == Right) _delay_ms(5);		// for non-inverted circuit 500 us, inverted - 1 ms
+	if (Motor.operation == Left) _delay_ms(1);		// for non-inverted circuit 500 us, inverted - 1 ms
+	if (Motor.operation == Right) _delay_ms(5);		// for non-inverted circuit 500 us, inverted - 1 ms
 
 	
 	ImpOff;
@@ -340,33 +339,36 @@ void Regulation()
 	
 	ratio = 1 - ((Measure.Ua == 0 ? 1 : Measure.Ua) / (Measure.Up == 0 ? 1 : Measure.Up));
 	difference = Overfeed - ratio;
+	Measure.D = difference;
+	
+	if (Motor.isStep || Motor.isDelay) return;
 	
 	if ((difference > RangeDown && difference < RangeUp))
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
-		Motor.isStep = 0;
-		Motor.isDelay = false;
+		Motor.direction = 0;
 		return;
 	}
-	
-	if (Motor.isStep || Motor.isDelay) return;
 	
 	if (difference >= RangeUp) 
 	{
 		Motor.operation = Left;
-		Motor.isStep = LeftStepDuration;
+		Motor.isStep = LeftStepDuration; 
+		Motor.direction = 1;
 	}
 	else 
 	{
 		Motor.operation = Right;
 		Motor.isStep = RightStepDuration;
+		Motor.direction = -1;
 	}
 }
 							   					
 int main(void)
 {
 	Initialization();
+	LedOn;
 	
     while(1)
     {	
@@ -394,7 +396,8 @@ int main(void)
 			
 			if (Mode.run && !Mode.startDelay)
 			{
-				LedInv;
+				//LedInv;
+				if (Led) LedOff;
 			
 				if (Motor.isDelay > 0) Motor.isDelay--;
 				
@@ -426,12 +429,11 @@ int main(void)
 				Mode.fault = false;
 				Timer0(true);
 				Timer1(true);
-				//Comparator(On);
+				Comparator(On);
 			}
 			
 			if (!Running && Mode.run)
 			{
-				LedOff;
 				ImpOff;
 				Timer0(false);
 				Timer1(false);
