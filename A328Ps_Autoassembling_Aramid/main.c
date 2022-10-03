@@ -224,7 +224,7 @@ void Transmit()
 
 float KalmanAramid(float aramidFrequecy, bool reset)
 {
-	static float measureVariation = 60, estimateVariation = 1, speedVariation = 0.05;
+	static float measureVariation = 3, estimateVariation = 3, speedVariation = 0.001;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -245,7 +245,7 @@ float KalmanAramid(float aramidFrequecy, bool reset)
 
 float KalmanPolyamide(float polyamideFrequency, bool reset)
 {
-	static float measureVariation = 60, estimateVariation = 1, speedVariation = 0.05;
+	static float measureVariation = 4, estimateVariation = 4, speedVariation = 0.001;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
