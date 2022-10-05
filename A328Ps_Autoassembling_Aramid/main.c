@@ -43,17 +43,12 @@
 								// these parameters also should be positioned in ROM
 #define StartDelay		  30	// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-//#define RangeUp			  0.003	// if ratio > range up then motor left
-//#define RangeDown		  -0.003	// if ratio < range up then motor right; between = stop
-#define RangeUp			  0.004	// if ratio > range up then motor left
-#define RangeDown		  -0.004
-#define Overfeed		  0		// factor to keep wrong assembling (for example if we need asm - 10)
-#define LeftStepDuration  2		 // sp1
-#define RightStepDuration 2		 // sp1
-#define PauseBetweenSteps 12		 // sp1
-//#define LeftStepDuration  2		 // rest sps
-//#define RightStepDuration 2		 // rest sps
-//#define PauseBetweenSteps 10		// rest sps
+#define RangeUp			  0.003	// if ratio > range up then motor left
+#define RangeDown		  -0.003
+#define LeftStepDuration  2			// sp1
+#define RightStepDuration 2			// sp1
+#define PauseBetweenSteps 30		// sp1
+#define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -74,26 +69,19 @@ struct TimeControl
 
 struct Data
 {
-	unsigned int ovf;
-	unsigned int Fa;
-	unsigned int Fp;
-	float Ua;
-	float Up;
+	unsigned int Fa,Fp,ovf;
+	float Ua,Up;
 } Measure;
 
 struct ModeControl
 {
-	unsigned int startDelay;
-	unsigned int faultDelay;
-	bool fault;
-	bool run;
+	unsigned int startDelay,faultDelay;
+	bool fault,run;
 } Mode;
 
 struct MotorControl
 {
-	unsigned int isDelay;
-	unsigned int isStep;
-	unsigned int operation;
+	unsigned int isDelay,isStep,operation;
 } Motor; 
 
 void Timer0(bool enable)
@@ -210,21 +198,25 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char fa[20], fp[20];
-	static char buffer[50];
+	static char fa[10], fp[10], ua[20], up[20];
+	static char buffer[70];
 		
-	memset(buffer, 0, 50);
+	memset(buffer, 0, 70);
 	
 	sprintf(fa, "A%d$", Measure.Fa);
 	sprintf(fp, "P%d$", Measure.Fp);
+	sprintf(ua, "a%.2f$", Measure.Ua);
+	sprintf(up, "p%.2f$", Measure.Up);
 	strcat(buffer, fa);
 	strcat(buffer, fp);
+	strcat(buffer, ua);
+	strcat(buffer, up);
 	TxString(buffer);
 }
 
-float KalmanAramid(float aramidFrequecy, bool reset)
+float KalmanAramid(unsigned int aramidFrequecy, bool reset)
 {
-	static float measureVariation = 3, estimateVariation = 3, speedVariation = 0.001;
+	static float measureVariation = 4, estimateVariation = 4, speedVariation = 0.005;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -237,15 +229,15 @@ float KalmanAramid(float aramidFrequecy, bool reset)
 	}
 	
 	Gain = estimateVariation / (estimateVariation + measureVariation);
-	CurrentEstimate = LastEstimate + Gain * (aramidFrequecy - LastEstimate);
+	CurrentEstimate = LastEstimate + Gain * (((float)aramidFrequecy) - LastEstimate);
 	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
 	LastEstimate = CurrentEstimate;
 	return CurrentEstimate;	
 }
 
-float KalmanPolyamide(float polyamideFrequency, bool reset)
+float KalmanPolyamide(unsigned int polyamideFrequency, bool reset)
 {
-	static float measureVariation = 4, estimateVariation = 4, speedVariation = 0.001;
+	static float measureVariation = 3, estimateVariation = 3, speedVariation = 0.005;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -258,7 +250,7 @@ float KalmanPolyamide(float polyamideFrequency, bool reset)
 	}
 	
 	Gain = estimateVariation / (estimateVariation + measureVariation);
-	CurrentEstimate = LastEstimate + Gain * (polyamideFrequency - LastEstimate);
+	CurrentEstimate = LastEstimate + Gain * (((float)polyamideFrequency) - LastEstimate);
 	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
 	LastEstimate = CurrentEstimate;
 	return CurrentEstimate;	
@@ -266,17 +258,10 @@ float KalmanPolyamide(float polyamideFrequency, bool reset)
 
 void Calculation()
 {	
-	static float speedA = 0, speedP = 0;
-	
-	speedA = TCNT1;
-	//speedP = TCNT0+(Measure.ovf*256);
-	speedP = Measure.Fp;
-	
-	Measure.Fa = speedA;
-	Measure.Fp = speedP;
-	
-	Measure.Ua = KalmanAramid(speedA, false);//*0.05277875658;
-	Measure.Up = KalmanPolyamide(speedP, false);;//*0.05277875658;		
+	Measure.Fa = TCNT1;
+	Measure.Fp = TCNT0+(Measure.ovf*256);
+	Measure.Ua = KalmanAramid(Measure.Fa, false);//*0.05277875658;
+	Measure.Up = KalmanPolyamide(Measure.Fp, false);;//*0.05277875658;		
 }
 
 void Initialization()
@@ -307,25 +292,26 @@ void Initialization()
 	KalmanPolyamide(0, true);
 	
 	Timer2(true);
-	Comparator(Init);
-	//USART(Init);
-	//USART(On);
+	//Comparator(Init);
+	USART(Init);
+	USART(On);
 	sei();
 }
 
 void Step()
 {
 	ImpOn;
+	LedOn;
 	
 	 //sp1
 	//if (Motor.operation == Right) _delay_us(500);		// for non-inverted circuit 500 us, inverted - 1 ms
 	//if (Motor.operation == Left) _delay_ms(5);		// for non-inverted circuit 5 ms, inverted - 7 ms
 	
 	// rest
-	if (Motor.operation == Left) _delay_ms(1);		// for non-inverted circuit 500 us, inverted - 1 ms
+	if (Motor.operation == Left) _delay_ms(2);		// 2 for sp4, for non-inverted circuit 500 us, inverted - 1 ms
 	if (Motor.operation == Right) _delay_ms(5);		// for non-inverted circuit 500 us, inverted - 1 ms
 
-	
+	LedOff;
 	ImpOff;
 	_delay_ms(5); // both
 }
@@ -366,19 +352,6 @@ int main(void)
     {	
 		if (MainTimer.ms100)
 		{
-			if (Mode.run && !Mode.startDelay)
-			{
-				Calculation();
-				//Transmit();
-			}
-			
-			if (Mode.run)
-			{
-				TCNT0 = 0;
-				TCNT1 = 0;
-				Measure.Fp = 0;
-				Measure.ovf = 0;
-			}
 			
 			MainTimer.ms100 = false;
 		}
@@ -390,6 +363,8 @@ int main(void)
 			if (Mode.run && !Mode.startDelay)
 			{
 				LedInv;
+				Calculation();
+				Transmit();
 			
 				if (Motor.isDelay > 0) Motor.isDelay--;
 				
@@ -399,9 +374,7 @@ int main(void)
 					if (!Motor.isStep) Motor.isDelay = PauseBetweenSteps;
 				}
 				
-				//Calculation();
 				Regulation();
-				//Transmit();
 
 				if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
 				
@@ -412,6 +385,14 @@ int main(void)
 				}
 			}
 			
+			if (Mode.run)
+			{
+				TCNT0 = 0;
+				TCNT1 = 0;
+				Measure.Fp = 0;
+				Measure.ovf = 0;
+			}
+			
 			if (Running && !Mode.run)
 			{
 				FaultOff;
@@ -419,18 +400,18 @@ int main(void)
 				Mode.startDelay = StartDelay;
 				Mode.faultDelay = FaultDelay;
 				Mode.fault = false;
-				//Timer0(true);
+				Timer0(true);
 				Timer1(true);
-				Comparator(On);
+				//Comparator(On);
 			}
 			
 			if (!Running && Mode.run)
 			{
 				LedOff;
 				ImpOff;
-				//Timer0(false);
+				Timer0(false);
 				Timer1(false);
-				Comparator(Off);
+				//Comparator(Off);
 				KalmanAramid(0, true);
 				KalmanPolyamide(0, true);
 				Measure.Ua = 0;

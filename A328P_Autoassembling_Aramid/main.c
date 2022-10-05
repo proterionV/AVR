@@ -53,8 +53,8 @@
 #define Waiting			22
 #define Process			33
 
-#define IntervalR		2
-#define IntervalL		2
+#define IntervalR		3
+#define IntervalL		3
 #define AccelDelay		40
 #define AlarmDelay		600
 #define RangeUp			0.005
@@ -98,7 +98,7 @@ volatile struct
 
 void Timer0(bool enable)
 {
-	if (enable)
+	if (enable)			 
 	{
 		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);
 		TIMSK0 = (1 << TOIE0);
@@ -268,7 +268,7 @@ void Calculation()
 {
 	float a, p = 0;
 	
-	a = ((255.f*Measure.ovf)+TCNT0)*0.001709568;
+	a = ((256.f*Measure.ovf)+TCNT0)*0.001709568;
 	p =	TCNT1*0.003183264;
 	Measure.Fa = MovAvgAramid(a*60); // (1.2096774 * 0.0848 = 0.10258
 	Measure.Fp = MovAvgPolyamide(p*60); // 50 imp/rev // (1.2096774 * 0.1579 = 0.19052

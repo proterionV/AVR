@@ -42,9 +42,9 @@
 
 //#define ImpOn  Low(PORTD, 7)
 //#define ImpOff High(PORTD, 7)
-#define ImpOn  High(PORTD, PORTB3)
-#define ImpOff Low(PORTD, PORTB3)
-#define ImpInv Inv(PORTD, PORTB3)
+#define ImpOn  High(PORTB, PORTB3)
+#define ImpOff Low(PORTB, PORTB3)
+#define ImpInv Inv(PORTB, PORTB3)
 
 #define ServoUp		 High(PORTB, PORTB1)
 #define	ServoDown 	 Low(PORTB, PORTB1)
@@ -578,8 +578,8 @@ void SendToServer()
 void Step(short direction)
 {
 	ImpOn;
-	if (direction) _delay_ms(1);  // invert - 800 us   // direct 1 ms
-	else _delay_ms(7);
+	//if (direction) _delay_ms(5);  // invert - 800 us   // direct 1 ms
+	_delay_ms(2);
 	ImpOff;
 	_delay_ms(5);
 }
@@ -593,7 +593,7 @@ void Control()
 
 int main(void)
 {
-	DDRB = 0b00100001;
+	DDRB = 0b00101001;
 	PORTB = 0b00000000;
 	
 	DDRC = 0b00000000;
@@ -608,6 +608,8 @@ int main(void)
 	
 	while(1)
 	{	
+		Control();
+		
 		if (MainTimer.isr)
 		{
 
