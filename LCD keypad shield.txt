@@ -1,0 +1,7 @@
+Voltage levels accordigly buttons
+RIGHT = 0
+Up = 130
+Down = 310
+Left = 482
+Select = 723
+None = 1023

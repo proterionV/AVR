@@ -960,7 +960,7 @@ int main(void)
 		{
 			DisplayPrint();
 			MainTimer.ms992 = 0;
-			
+
 			if (!Limit.active) Limit.delay++;
 			
 			if (Menu.mode == Auto && ((AutoMode.state == Acceleration) || (AutoMode.state == Deceleration)))

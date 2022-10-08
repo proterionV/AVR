@@ -37,6 +37,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Notes", "Notes", "{6A600507
 	ProjectSection(SolutionItems) = preProject
 		DDS Description.c = DDS Description.c
 		esp8266.txt = esp8266.txt
+		LCD keypad shield.txt = LCD keypad shield.txt
 		MC Studio settings.c = MC Studio settings.c
 	EndProjectSection
 EndProject
@@ -63,6 +64,8 @@ EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328Ps_Autoassembling_Aramid", "A328Ps_Autoassembling_Aramid\A328Ps_Autoassembling_Aramid.cproj", "{653F322A-B77A-4A99-92F2-21EACA897FB3}"
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328Ps_Roughness", "A328Ps_Roughness\A328Ps_Roughness.cproj", "{24CA34C9-B1F9-4EF3-A673-C1518EB5503E}"
+EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Master_Shield", "A328P_Master_Shield\A328P_Master_Shield.cproj", "{530ADB81-A7AD-4E6C-A36E-B860CDD7D332}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -102,6 +105,10 @@ Global
 		{24CA34C9-B1F9-4EF3-A673-C1518EB5503E}.Debug|AVR.Build.0 = Debug|AVR
 		{24CA34C9-B1F9-4EF3-A673-C1518EB5503E}.Release|AVR.ActiveCfg = Release|AVR
 		{24CA34C9-B1F9-4EF3-A673-C1518EB5503E}.Release|AVR.Build.0 = Release|AVR
+		{530ADB81-A7AD-4E6C-A36E-B860CDD7D332}.Debug|AVR.ActiveCfg = Debug|AVR
+		{530ADB81-A7AD-4E6C-A36E-B860CDD7D332}.Debug|AVR.Build.0 = Debug|AVR
+		{530ADB81-A7AD-4E6C-A36E-B860CDD7D332}.Release|AVR.ActiveCfg = Release|AVR
+		{530ADB81-A7AD-4E6C-A36E-B860CDD7D332}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
