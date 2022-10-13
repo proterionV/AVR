@@ -252,3 +252,9 @@ void EraseRow(short x, short y)
 	for (int i = x; i<16; i++) lcd_putc(' ');
 	lcd_gotoxy(x, y);
 }
+
+void PrintString(short x, short y, const char* string)
+{
+	EraseRow(x, y);
+	lcd_puts(string);
+}
