@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <math.h>
 #include <stdbool.h>
 #include <util/delay.h>
@@ -29,10 +30,12 @@
 #define LedOn		High(PORTB, PORTB5)
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
+#define LedMode		Off
 
-#define Off	 0
-#define On	 1
-#define Init 2
+#define Off	  0
+#define On	  1
+#define Init  2
+#define Blink 3
 
 #define TxOn	 3
 #define TxOff	 4
@@ -89,6 +92,11 @@ struct Interface
 	unsigned short page, item, subitem, row;
 	bool printed;
 } Menu;
+
+struct Controls
+{
+	unsigned short ledMode;	
+} Common;
 
 struct Analog
 {
@@ -367,7 +375,7 @@ void Receive()
 	{
 		if (!strcasecmp(Response[i], "ERROR"))
 		{
-			lcd_clrline(0, 0, Response[i]);
+			PrintString(0, 0, Response[i]);
 			return;
 		}
 	}
@@ -464,6 +472,7 @@ void SetRow(unsigned short direction)
 		lcd_putc(Eraser);
 		lcd_gotoxy(0, 0);
 		lcd_putc(Arrow);
+		Menu.row = Up;
 		return;
 	}
 	
@@ -473,6 +482,7 @@ void SetRow(unsigned short direction)
 		lcd_putc(Eraser);
 		lcd_gotoxy(0, 1);
 		lcd_putc(Arrow);
+		Menu.row = Down;
 	}
 }
 
@@ -525,7 +535,7 @@ void ConfigHandler()
 		lcd_gotoxy(1, 1);
 		lcd_puts("Settings");
 		Menu.printed = true;
-	}
+	}							
 }
 
 void ObserveHandler()
@@ -541,17 +551,44 @@ void ObserveHandler()
 	}
 }
 
-void TestHandler()
+void SetLedMode()
 {
+	if (Common.ledMode == Off) 
+	{ 
+		LedOn;
+		Common.ledMode = On;  
+	}
+	else if (Common.ledMode == On) 
+	{ 
+		Common.ledMode = Blink; 
+	}
+	else 
+	{ 
+		LedOff;
+		Common.ledMode = Off; 
+	} 
+	
+	Menu.printed = false;
+}
+
+void TestHandler()
+{	
 	if (!Menu.printed)
 	{
 		SetRow(Menu.row);
 		lcd_gotoxy(1, 0);
 		lcd_puts("Test1");
 		lcd_gotoxy(1, 1);
-		lcd_puts("Test2");
+		lcd_puts("Led:");
+		
+		if (Common.ledMode == On) PrintString(5, 1, "on");
+		else if (Common.ledMode == Blink) PrintString(5, 1, "blink");
+		else PrintString(5, 1, "off");
+		
 		Menu.printed = true;
 	}
+	
+	if (Menu.button == Select && Menu.row == Down) SetLedMode();
 }
 
 void ConnectionHandler()
@@ -623,7 +660,7 @@ void Handler1000()
 {
 	 if (MainTimer.sec)
 	 {
-		 LedInv;
+		 if (Common.ledMode == Blink) LedInv;
 		 
 		 MainTimer.sec = false;
 	 }
