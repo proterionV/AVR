@@ -578,8 +578,8 @@ void SendToServer()
 void Step(short direction)
 {
 	ImpOn;
-	//if (direction) _delay_ms(5);  // invert - 800 us   // direct 1 ms
-	_delay_ms(2);
+	if (direction) _delay_ms(5);  // invert - 800 us   // direct 1 ms
+	_delay_ms(1);
 	ImpOff;
 	_delay_ms(5);
 }

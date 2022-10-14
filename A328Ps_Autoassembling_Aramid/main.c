@@ -41,10 +41,10 @@
 #define Left 			20
 #define Locked			30
 								// these parameters also should be positioned in ROM
-#define StartDelay		  30	// delay to start measuring after spindle start
+#define StartDelay		  10	// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.003	// if ratio > range up then motor left
-#define RangeDown		  -0.003
+#define RangeUp			  0.004	// if ratio > range up then motor left
+#define RangeDown		  -0.004
 #define LeftStepDuration  2			// sp1
 #define RightStepDuration 2			// sp1
 #define PauseBetweenSteps 30		// sp1
@@ -198,17 +198,17 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char fa[10], fp[10], ua[20], up[20];
+	static char ua[20], up[20];
 	static char buffer[70];
 		
 	memset(buffer, 0, 70);
 	
-	sprintf(fa, "A%d$", Measure.Fa);
-	sprintf(fp, "P%d$", Measure.Fp);
-	sprintf(ua, "a%.2f$", Measure.Ua);
-	sprintf(up, "p%.2f$", Measure.Up);
-	strcat(buffer, fa);
-	strcat(buffer, fp);
+	//sprintf(fa, "A%d$", Measure.Fa);
+	//sprintf(fp, "P%d$", Measure.Fp);
+	sprintf(ua, "A%.2f$", Measure.Ua);
+	sprintf(up, "P%.2f$", Measure.Up);
+	//strcat(buffer, fa);
+	//strcat(buffer, fp);
 	strcat(buffer, ua);
 	strcat(buffer, up);
 	TxString(buffer);
@@ -216,7 +216,7 @@ void Transmit()
 
 float KalmanAramid(unsigned int aramidFrequecy, bool reset)
 {
-	static float measureVariation = 4, estimateVariation = 4, speedVariation = 0.005;
+	static float measureVariation = 1.5, estimateVariation = 1, speedVariation = 0.01;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -237,7 +237,7 @@ float KalmanAramid(unsigned int aramidFrequecy, bool reset)
 
 float KalmanPolyamide(unsigned int polyamideFrequency, bool reset)
 {
-	static float measureVariation = 3, estimateVariation = 3, speedVariation = 0.005;
+	static float measureVariation = 1.5, estimateVariation = 1, speedVariation = 0.01;
 	static float CurrentEstimate = 0;
 	static float LastEstimate = 0;
 	static float Gain = 0;
@@ -260,8 +260,8 @@ void Calculation()
 {	
 	Measure.Fa = TCNT1;
 	Measure.Fp = TCNT0+(Measure.ovf*256);
-	Measure.Ua = KalmanAramid(Measure.Fa, false);//*0.05277875658;
-	Measure.Up = KalmanPolyamide(Measure.Fp, false);;//*0.05277875658;		
+	Measure.Ua = KalmanAramid(Measure.Fa*0.052752, false);
+	Measure.Up = KalmanPolyamide(Measure.Fp*0.052752, false);		
 }
 
 void Initialization()
@@ -304,12 +304,12 @@ void Step()
 	LedOn;
 	
 	 //sp1
-	//if (Motor.operation == Right) _delay_us(500);		// for non-inverted circuit 500 us, inverted - 1 ms
-	//if (Motor.operation == Left) _delay_ms(5);		// for non-inverted circuit 5 ms, inverted - 7 ms
+	if (Motor.operation == Right) _delay_us(500);		// for non-inverted circuit 500 us, inverted - 1 ms
+	if (Motor.operation == Left) _delay_ms(5);		// for non-inverted circuit 5 ms, inverted - 7 ms
 	
 	// rest
-	if (Motor.operation == Left) _delay_ms(2);		// 2 for sp4, for non-inverted circuit 500 us, inverted - 1 ms
-	if (Motor.operation == Right) _delay_ms(5);		// for non-inverted circuit 500 us, inverted - 1 ms
+	//if (Motor.operation == Left) _delay_ms(2);		// 2 for sp4, for non-inverted circuit 500 us, inverted - 1 ms
+	//if (Motor.operation == Right) _delay_ms(5);		// for non-inverted circuit 500 us, inverted - 1 ms
 
 	LedOff;
 	ImpOff;
