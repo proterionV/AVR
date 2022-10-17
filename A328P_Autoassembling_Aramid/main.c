@@ -57,8 +57,8 @@
 #define IntervalL		3
 #define AccelDelay		40
 #define AlarmDelay		600
-#define RangeUp			0.005
-#define RangeDown		-0.005
+#define RangeUp			0.006
+#define RangeDown		-0.006
 #define AArraySize		35				  
 #define PArraySize		35
 #define TArraySize		10

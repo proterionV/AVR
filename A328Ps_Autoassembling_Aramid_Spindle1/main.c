@@ -7,7 +7,6 @@
  */ 
 
 #define F_CPU	16000000L
-#define Spindle	1				// order number device = order number of spindle, can use as address of device, it should be positioned in RAM
 				
 #define Check(REG,BIT) (REG & (1<<BIT))
 #define Inv(REG,BIT)   (REG ^= (1<<BIT))
@@ -40,15 +39,18 @@
 #define Right	 		10
 #define Left 			20
 #define Locked			30
-								// these parameters also should be positioned in ROM
-#define StartDelay		  10	// delay to start measuring after spindle start
+	
+#define ArraySize		  20		// these parameters also should be positioned in ROM
+#define StartDelay		  3		// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.004	// if ratio > range up then motor left
-#define RangeDown		  -0.004
+#define RangeUp			  0.006		// if ratio > range up then motor left
+#define RangeDown		  -0.006
 #define LeftStepDuration  2			// sp1
 #define RightStepDuration 2			// sp1
 #define PauseBetweenSteps 30		// sp1
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
+
+#define Eraser ' '
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -56,33 +58,42 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <stdint.h>
+#include <stdint.h>			
 #include <stdbool.h>
 #include <float.h>
 #include <avr/eeprom.h>
+#include "lcd/lcd.h"
+//
+//struct TimeControl
+//{
+	//unsigned int ms;
+	//bool ms100, s;
+//} MainTimer;
+//
+//struct Data
+//{
+	//unsigned short ovf;
+	//float Fa,Fp;
+//} Measure;
+//
+//struct ModeControl
+//{
+	//unsigned int startDelay,faultDelay;
+	//bool fault,run;
+//} Mode;
+//
+//struct MotorControl
+//{
+	//unsigned int isDelay,isStep,operation;
+//} Motor; 
 
-struct TimeControl
-{
-	unsigned int ms;
-	bool ms100, s;
-} MainTimer;
-
-struct Data
-{
-	unsigned int Fa,Fp,ovf;
-	float Ua,Up;
-} Measure;
-
-struct ModeControl
-{
-	unsigned int startDelay,faultDelay;
-	bool fault,run;
-} Mode;
-
-struct MotorControl
-{
-	unsigned int isDelay,isStep,operation;
-} Motor; 
+unsigned int ms;
+bool ms100, s;
+unsigned short ovf;
+float Fa,Fp;
+unsigned int startDelay,faultDelay;
+bool fault,run;
+unsigned int isDelay,isStep,operation;
 
 void Timer0(bool enable)
 {
@@ -129,7 +140,7 @@ void Timer2(bool enable)
 
 ISR(TIMER2_OVF_vect)
 {	
-	MainTimer.ms++;
+	ms++;
 
 	if (MainTimer.ms % 100 == 0) MainTimer.ms100 = true;
 
@@ -145,26 +156,6 @@ ISR(TIMER2_OVF_vect)
 ISR(ANALOG_COMP_vect)
 {
 	Measure.Fp++;
-}
-
-void Comparator(unsigned int option)
-{
-	switch(option)
-	{
-		case On:
-			High(ACSR, ACIE);
-			break;
-		case Off:
-			Low(ACSR, ACIE);
-		default:
-			Low(ADCSRA, ADEN);
-			Low(ADCSRB, ACME);
-			Low(ACSR, ACI);
-			High(ACSR, ACBG);
-			Low(ACSR, ACIE);
-			High(ACSR, ACIS1);
-			break;
-	}
 }
 
 void USART(unsigned short option)
@@ -196,72 +187,67 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-void Transmit()
+float AverageA(unsigned int aramidFrequency)
 {
-	static char ua[20], up[20];
-	static char buffer[70];
+	static float values[ArraySize] = { 0 };
+	static int index = 0;
+	static float result = 0;
+	
+	if (++index >= ArraySize) index = 0;
 		
-	memset(buffer, 0, 70);
+	result -= values[index];					
+	result += (float)aramidFrequency;		
+	values[index] = (float)aramidFrequency;	
 	
-	//sprintf(fa, "A%d$", Measure.Fa);
-	//sprintf(fp, "P%d$", Measure.Fp);
-	sprintf(ua, "A%.2f$", Measure.Ua);
-	sprintf(up, "P%.2f$", Measure.Up);
-	//strcat(buffer, fa);
-	//strcat(buffer, fp);
-	strcat(buffer, ua);
-	strcat(buffer, up);
-	TxString(buffer);
+	return ((float)result / ArraySize);
 }
 
-float KalmanAramid(unsigned int aramidFrequecy, bool reset)
+float AverageP(unsigned int polyamideFrequency)
 {
-	static float measureVariation = 1.5, estimateVariation = 1, speedVariation = 0.01;
-	static float CurrentEstimate = 0;
-	static float LastEstimate = 0;
-	static float Gain = 0;
+	static float values[ArraySize] = { 0 };
+	static int index = 0;
+	static float result = 0;
 	
-	if (reset)
-	{
-		CurrentEstimate = 0;
-		LastEstimate = 0;
-		Gain = 0;
-	}
-	
-	Gain = estimateVariation / (estimateVariation + measureVariation);
-	CurrentEstimate = LastEstimate + Gain * (((float)aramidFrequecy) - LastEstimate);
-	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
-	LastEstimate = CurrentEstimate;
-	return CurrentEstimate;	
+	if (++index >= ArraySize) index = 0;
+		
+	result -= values[index];					
+	result += (float)polyamideFrequency;		
+	values[index] = (float)polyamideFrequency;
+		
+	return ((float)result / ArraySize);
 }
 
-float KalmanPolyamide(unsigned int polyamideFrequency, bool reset)
+void DisplayPrint()
 {
-	static float measureVariation = 1.5, estimateVariation = 1, speedVariation = 0.01;
-	static float CurrentEstimate = 0;
-	static float LastEstimate = 0;
-	static float Gain = 0;
-	
-	if (reset)
+	 static char fa[20], fp[20];
+	 //static char buffer[60];
+	 
+	 lcd_gotoxy(0, 0);
+	 sprintf(fa, "%.1f\r\n", Measure.Fa);
+	 lcd_puts(fa);
+	 
+	 lcd_gotoxy(0, 1);
+	 sprintf(fp, "%.1f\r\n", Measure.Fp);
+	 lcd_puts(fp);
+
+	 //strcat(buffer, fa);
+	 //strcat(buffer, fp);
+	 //TxString(buffer);
+}
+
+void ResetFilters()
+{
+	for (int i = 0; i<ArraySize; i++)
 	{
-		CurrentEstimate = 0;
-		LastEstimate = 0;
-		Gain = 0;
+		AverageA(0);
+		AverageP(0);
 	}
-	
-	Gain = estimateVariation / (estimateVariation + measureVariation);
-	CurrentEstimate = LastEstimate + Gain * (((float)polyamideFrequency) - LastEstimate);
-	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
-	LastEstimate = CurrentEstimate;
-	return CurrentEstimate;	
 }
 
 void Calculation()
 {	
-	Measure.Fa = TCNT1;
-	Measure.Fp = TCNT0+(Measure.ovf*256);
-	Measure.Ua = KalmanAramid(Measure.Fa*0.052752, false);
-	Measure.Up = KalmanPolyamide(Measure.Fp*0.052752, false);		
+	Measure.Fa = AverageA(TCNT0+(Measure.ovf*256));
+	Measure.Fp = AverageP(TCNT1);		
 }
 
 void Initialization()
@@ -275,11 +261,14 @@ void Initialization()
 	DDRD = 0b00000010;
 	PORTD = 0b00000011;
 	
+	lcd_init(LCD_DISP_ON);
+	lcd_clrscr();
+	lcd_home();
+	
 	MainTimer.ms = 0;
 	MainTimer.s = false;
 	
-	Measure.Ua = 0;
-	Measure.Up = 0;
+	Measure.Fa = 0;
 	Measure.Fp = 0;
 	
 	Mode.run = false;
@@ -287,9 +276,6 @@ void Initialization()
 	Mode.faultDelay = FaultDelay;
 	Mode.startDelay = 0;
 	Motor.operation = Locked;
-	
-	KalmanAramid(0, true);
-	KalmanPolyamide(0, true);
 	
 	Timer2(true);
 	USART(Init);
@@ -314,7 +300,7 @@ void Regulation()
 {
 	static float difference = 0, ratio = 0;
 	
-	ratio = 1 - ((Measure.Ua == 0 ? 1 : Measure.Ua) / (Measure.Up == 0 ? 1 : Measure.Up));
+	ratio = 1 - ((Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp));
 	difference = Overfeed - ratio;
 	
 	if (Motor.isStep || Motor.isDelay) return;
@@ -351,14 +337,14 @@ int main(void)
 		}
 		
 		if (MainTimer.s)
-		{
+		{	
 			if (Mode.startDelay) Mode.startDelay--;
 			
 			if (Mode.run && !Mode.startDelay)
 			{
 				LedInv;
 				Calculation();
-				Transmit();
+				DisplayPrint();
 			
 				if (Motor.isDelay > 0) Motor.isDelay--;
 				
@@ -404,10 +390,8 @@ int main(void)
 				ImpOff;
 				Timer0(false);
 				Timer1(false);
-				KalmanAramid(0, true);
-				KalmanPolyamide(0, true);
-				Measure.Ua = 0;
-				Measure.Up = 0;
+				ResetFilters();
+				Measure.Fa = 0;
 				Measure.Fp = 0;
 				Mode.run = false;
 				Mode.fault = false;
