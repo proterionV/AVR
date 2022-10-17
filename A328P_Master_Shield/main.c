@@ -2,7 +2,7 @@
  * main.c
  *
  * Created: 10/7/2022 8:22:24 PM
- *  Author: prote
+ *  Author: Abramov
  */ 
 
 #define F_CPU 16000000L
@@ -30,7 +30,6 @@
 #define LedOn		High(PORTB, PORTB5)
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
-#define LedMode		Off
 
 #define Off	  0
 #define On	  1
@@ -78,7 +77,7 @@
 
 #define Test		3
 #define Test1		30
-#define Test2		31  
+#define LedMode		31  
 
 struct TimeControl
 {
@@ -112,6 +111,8 @@ struct Receiving
 
 struct TCP
 {
+	unsigned short ip[4];
+	unsigned int port;
 	bool tryToConnect, connected;
 	bool receiving, handling;
 	bool building, sending;
@@ -149,7 +150,7 @@ ISR(TIMER2_OVF_vect)
 		if (MainTimer.s >= 60) MainTimer.s = 0;
 		MainTimer.ms = 0;
 	}
-	
+							
 	TCNT2 = 130;			   
 }
 
@@ -529,6 +530,7 @@ void ConfigHandler()
 {
 	if (!Menu.printed)
 	{
+		//lcd_cursor_off();
 		SetRow(Menu.row);
 		lcd_gotoxy(1, 0);
 		lcd_puts("Connection");
@@ -575,6 +577,7 @@ void TestHandler()
 {	
 	if (!Menu.printed)
 	{
+		lcd_cursor_On();
 		SetRow(Menu.row);
 		lcd_gotoxy(1, 0);
 		lcd_puts("Test1");
@@ -593,7 +596,20 @@ void TestHandler()
 
 void ConnectionHandler()
 {
-	
+	if (!Menu.printed)
+	{
+		SetRow(Menu.row);
+		lcd_gotoxy(1, 0);
+		lcd_puts("Test1");
+		lcd_gotoxy(1, 1);
+		lcd_puts("Led:");
+		
+		if (Common.ledMode == On) PrintString(5, 1, "on");
+		else if (Common.ledMode == Blink) PrintString(5, 1, "blink");
+		else PrintString(5, 1, "off");
+		
+		Menu.printed = true;
+	}	
 }
 
 void SettingsHandler()

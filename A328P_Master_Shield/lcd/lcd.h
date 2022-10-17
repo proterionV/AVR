@@ -223,9 +223,16 @@ void Lcd4_Shift_Left()
 	Lcd4_Cmd(0x01);
 	Lcd4_Cmd(0x08);
 }
-//End LCD 4 Bit Interfacing Functions
 
-//
+void lcd_cursor_On()
+{
+	Lcd4_Cmd(0x0E);
+}
+
+void lcd_cursor_off()
+{
+	Lcd4_Cmd(0x0C);
+}
 
 int DigitsCounter(int n)
 {
