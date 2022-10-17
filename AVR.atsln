@@ -67,6 +67,8 @@ Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328Ps_Roughness", "A328Ps_
 EndProject
 Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328P_Master_Shield", "A328P_Master_Shield\A328P_Master_Shield.cproj", "{530ADB81-A7AD-4E6C-A36E-B860CDD7D332}"
 EndProject
+Project("{54F91283-7BC4-4236-8FF9-10F437C3AD48}") = "A328Ps_Autoassembling_Aramid_Spindle1", "A328Ps_Autoassembling_Aramid_Spindle1\A328Ps_Autoassembling_Aramid_Spindle1.cproj", "{FFB88389-6094-4551-9F05-66623F0176E2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|AVR = Debug|AVR
@@ -109,6 +111,10 @@ Global
 		{530ADB81-A7AD-4E6C-A36E-B860CDD7D332}.Debug|AVR.Build.0 = Debug|AVR
 		{530ADB81-A7AD-4E6C-A36E-B860CDD7D332}.Release|AVR.ActiveCfg = Release|AVR
 		{530ADB81-A7AD-4E6C-A36E-B860CDD7D332}.Release|AVR.Build.0 = Release|AVR
+		{FFB88389-6094-4551-9F05-66623F0176E2}.Debug|AVR.ActiveCfg = Debug|AVR
+		{FFB88389-6094-4551-9F05-66623F0176E2}.Debug|AVR.Build.0 = Debug|AVR
+		{FFB88389-6094-4551-9F05-66623F0176E2}.Release|AVR.ActiveCfg = Release|AVR
+		{FFB88389-6094-4551-9F05-66623F0176E2}.Release|AVR.Build.0 = Release|AVR
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
