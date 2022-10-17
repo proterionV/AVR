@@ -40,14 +40,14 @@
 #define Left 			20
 #define Locked			30
 	
-#define ArraySize		  20		// these parameters also should be positioned in ROM
-#define StartDelay		  3		// delay to start measuring after spindle start
+#define ArraySize		  35		// these parameters also should be positioned in ROM
+#define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			  0.006		// if ratio > range up then motor left
 #define RangeDown		  -0.006
 #define LeftStepDuration  2			// sp1
 #define RightStepDuration 2			// sp1
-#define PauseBetweenSteps 30		// sp1
+#define PauseBetweenSteps 20		// sp1
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
 
 #define Eraser ' '
@@ -55,45 +55,32 @@
 #include <xc.h>
 #include <avr/interrupt.h>
 #include <util/delay.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>			
+#include <stdio.h>			
 #include <stdbool.h>
-#include <float.h>
-#include <avr/eeprom.h>
-#include "lcd/lcd.h"
-//
-//struct TimeControl
-//{
-	//unsigned int ms;
-	//bool ms100, s;
-//} MainTimer;
-//
-//struct Data
-//{
-	//unsigned short ovf;
-	//float Fa,Fp;
-//} Measure;
-//
-//struct ModeControl
-//{
-	//unsigned int startDelay,faultDelay;
-	//bool fault,run;
-//} Mode;
-//
-//struct MotorControl
-//{
-	//unsigned int isDelay,isStep,operation;
-//} Motor; 
+#include <string.h>
 
-unsigned int ms;
-bool ms100, s;
-unsigned short ovf;
-float Fa,Fp;
-unsigned int startDelay,faultDelay;
-bool fault,run;
-unsigned int isDelay,isStep,operation;
+struct TimeControl
+{
+	unsigned int ms;
+	bool s;
+} MainTimer;
+
+struct Data
+{
+	unsigned short ovf;
+	float Fa,Fp;
+} Measure;
+
+struct ModeControl
+{
+	unsigned int startDelay,faultDelay;
+	bool fault,run;
+} Mode;
+
+struct MotorControl
+{
+	unsigned int isDelay,isStep,operation;
+} Motor; 
 
 void Timer0(bool enable)
 {
@@ -140,9 +127,7 @@ void Timer2(bool enable)
 
 ISR(TIMER2_OVF_vect)
 {	
-	ms++;
-
-	if (MainTimer.ms % 100 == 0) MainTimer.ms100 = true;
+	MainTimer.ms++;
 
 	if (MainTimer.ms >= 1000)
 	{
@@ -217,22 +202,18 @@ float AverageP(unsigned int polyamideFrequency)
 	return ((float)result / ArraySize);
 }
 
-void DisplayPrint()
+void Transmit()
 {
 	 static char fa[20], fp[20];
-	 //static char buffer[60];
+	 static char buffer[60];
+	
+	 sprintf(fa, "A%.1f", Measure.Fa);
+	 sprintf(fp, "P%.1f", Measure.Fp);
+	 strcat(buffer, fa);
+	 strcat(buffer, fp);
+	 TxString(buffer);
 	 
-	 lcd_gotoxy(0, 0);
-	 sprintf(fa, "%.1f\r\n", Measure.Fa);
-	 lcd_puts(fa);
-	 
-	 lcd_gotoxy(0, 1);
-	 sprintf(fp, "%.1f\r\n", Measure.Fp);
-	 lcd_puts(fp);
-
-	 //strcat(buffer, fa);
-	 //strcat(buffer, fp);
-	 //TxString(buffer);
+	 memset(buffer, 0, 60);
 }
 
 void ResetFilters()
@@ -260,10 +241,6 @@ void Initialization()
 	
 	DDRD = 0b00000010;
 	PORTD = 0b00000011;
-	
-	lcd_init(LCD_DISP_ON);
-	lcd_clrscr();
-	lcd_home();
 	
 	MainTimer.ms = 0;
 	MainTimer.s = false;
@@ -330,12 +307,6 @@ int main(void)
 	
     while(1)
     {	
-		if (MainTimer.ms100)
-		{
-			
-			MainTimer.ms100 = false;
-		}
-		
 		if (MainTimer.s)
 		{	
 			if (Mode.startDelay) Mode.startDelay--;
@@ -344,7 +315,7 @@ int main(void)
 			{
 				LedInv;
 				Calculation();
-				DisplayPrint();
+				Transmit();
 			
 				if (Motor.isDelay > 0) Motor.isDelay--;
 				
