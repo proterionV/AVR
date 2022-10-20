@@ -1,0 +1,41 @@
+float KalmanAramid(unsigned int aramidFrequecy, bool reset)
+{
+	static float measureVariation = 1.5, estimateVariation = 1, speedVariation = 0.01;
+	static float CurrentEstimate = 0;
+	static float LastEstimate = 0;
+	static float Gain = 0;
+	
+	if (reset)
+	{
+		CurrentEstimate = 0;
+		LastEstimate = 0;
+		Gain = 0;
+	}
+	
+	Gain = estimateVariation / (estimateVariation + measureVariation);
+	CurrentEstimate = LastEstimate + Gain * (((float)aramidFrequecy) - LastEstimate);
+	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
+	LastEstimate = CurrentEstimate;
+	return CurrentEstimate;	
+}
+
+float KalmanPolyamide(unsigned int polyamideFrequency, bool reset)
+{
+	static float measureVariation = 1.5, estimateVariation = 1, speedVariation = 0.01;
+	static float CurrentEstimate = 0;
+	static float LastEstimate = 0;
+	static float Gain = 0;
+	
+	if (reset)
+	{
+		CurrentEstimate = 0;
+		LastEstimate = 0;
+		Gain = 0;
+	}
+	
+	Gain = estimateVariation / (estimateVariation + measureVariation);
+	CurrentEstimate = LastEstimate + Gain * (((float)polyamideFrequency) - LastEstimate);
+	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
+	LastEstimate = CurrentEstimate;
+	return CurrentEstimate;	
+}

@@ -45,10 +45,10 @@
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			  0.007		// if ratio > range up then motor left
 #define RangeDown		  -0.007
-#define LeftStepDuration  3			// sp1
-#define RightStepDuration 3			// sp1
-#define PauseBetweenSteps 40		// sp1
-#define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
+#define LeftStepDuration  3			// seconds
+#define RightStepDuration 3			// seconds
+#define PauseBetweenSteps 40		// seconds
+#define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -66,7 +66,7 @@ struct TimeControl
 struct Data
 {
 	unsigned int ovf;
-	float Fa, Fp;
+	float Fa, Fp, d;
 } Measure;
 
 struct ModeControl
@@ -172,58 +172,18 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char fa[30], fp[30];
-	static char buffer[80];
+	static char fa[10], fp[10], d[10];
+	static char buffer[40];
 	
 	sprintf(fa, "A%.1f$", Measure.Fa);
 	sprintf(fp, "P%.1f$", Measure.Fp);
-	strcat(buffer, fa);
-	strcat(buffer, fp);
-	TxString(buffer);
+	sprintf(d, "D%.3f$\r\n", Measure.d);
+	//strcat(buffer, fa);
+	//strcat(buffer, fp);
 	
-	memset(buffer, 0, 60);
-}
-
-float KalmanAramid(unsigned int aramidFrequecy, bool reset)
-{
-	static float measureVariation = 1.5, estimateVariation = 1, speedVariation = 0.01;
-	static float CurrentEstimate = 0;
-	static float LastEstimate = 0;
-	static float Gain = 0;
+	TxString(d);
 	
-	if (reset)
-	{
-		CurrentEstimate = 0;
-		LastEstimate = 0;
-		Gain = 0;
-	}
-	
-	Gain = estimateVariation / (estimateVariation + measureVariation);
-	CurrentEstimate = LastEstimate + Gain * (((float)aramidFrequecy) - LastEstimate);
-	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
-	LastEstimate = CurrentEstimate;
-	return CurrentEstimate;	
-}
-
-float KalmanPolyamide(unsigned int polyamideFrequency, bool reset)
-{
-	static float measureVariation = 1.5, estimateVariation = 1, speedVariation = 0.01;
-	static float CurrentEstimate = 0;
-	static float LastEstimate = 0;
-	static float Gain = 0;
-	
-	if (reset)
-	{
-		CurrentEstimate = 0;
-		LastEstimate = 0;
-		Gain = 0;
-	}
-	
-	Gain = estimateVariation / (estimateVariation + measureVariation);
-	CurrentEstimate = LastEstimate + Gain * (((float)polyamideFrequency) - LastEstimate);
-	estimateVariation = (1.0 - Gain) * estimateVariation + fabs(LastEstimate - CurrentEstimate) * speedVariation;
-	LastEstimate = CurrentEstimate;
-	return CurrentEstimate;	
+	memset(buffer, 0, 32);
 }
 
 float AverageA(unsigned int aramidFrequency)
@@ -256,6 +216,21 @@ float AverageP(unsigned int polyamideFrequency)
 	return ((float)result / ArraySize);
 }
 
+float Average(float difference)
+{
+	static float values[ArraySize] = { 0 };
+	static int index = 0;
+	static float result = 0;
+	
+	if (++index >= ArraySize) index = 0;
+	
+	result -= values[index];
+	result += difference;
+	values[index] = difference;
+	
+	return result / ArraySize;
+}
+
 void ResetFilters()
 {
 	for (int i = 0; i<ArraySize; i++)
@@ -263,15 +238,16 @@ void ResetFilters()
 		AverageA(0);
 		AverageP(0);
 	}
-	
-	KalmanAramid(0, true);
-	KalmanPolyamide(0, true);
 }
 
 void Calculation()
 {	
-	Measure.Fa = AverageA(TCNT0+Measure.ovf*256);
-	Measure.Fp = AverageP(TCNT1);		
+	Measure.Fa = (float)TCNT0+Measure.ovf*256;
+	Measure.Fp = (float)TCNT1;
+	
+	TCNT0 = 0;
+	TCNT1 = 0;
+	Measure.ovf = 0;		
 }
 
 void Initialization()
@@ -298,9 +274,39 @@ void Initialization()
 	Motor.operation = Locked;
 	
 	Timer2(true);
-	//USART(Init);
-	//USART(On);
+	USART(Init);
+	USART(On);
 	sei();
+}
+
+void StartOrStop()
+{
+	if (Running && !Mode.run)
+	{
+		FaultOff;
+		Mode.run = true;
+		Mode.startDelay = StartDelay;
+		Mode.faultDelay = FaultDelay;
+		Mode.fault = false;
+		Timer0(true);
+		Timer1(true);
+	}
+	
+	if (!Running && Mode.run)
+	{
+		LedOff;
+		ImpOff;
+		Timer0(false);
+		Timer1(false);
+		ResetFilters();
+		Measure.Fa = 0;
+		Measure.Fp = 0;
+		Mode.run = false;
+		Mode.fault = false;
+		Mode.faultDelay = FaultDelay;
+		Mode.startDelay = 0;
+		Motor.operation = Locked;
+	}
 }
 
 void Step()
@@ -356,7 +362,8 @@ void Regulation()
 	static float difference = 0, ratio = 0;
 	
 	ratio = 1 - ((Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp));
-	difference = Overfeed - ratio;
+	difference = Average(Overfeed - ratio);
+	Measure.d = difference;
 	
 	if (Motor.isStep || Motor.isDelay) return;
 	
@@ -378,6 +385,36 @@ void Regulation()
 		Motor.isStep = RightStepDuration;
 	}
 }
+
+void Process(bool isTransmit)
+{
+	if (Mode.run && !Mode.startDelay)
+	{
+		LedInv;
+		
+		Calculation();
+		
+		if (isTransmit) Transmit();
+		
+		if (Motor.isDelay > 0) Motor.isDelay--;
+		
+		if (Motor.isStep)
+		{
+			Motor.isStep--;
+			if (!Motor.isStep) Motor.isDelay = PauseBetweenSteps;
+		}
+		
+		Regulation();
+
+		if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
+		
+		if (!Mode.faultDelay && !Mode.fault)
+		{
+			FaultOn;
+			Mode.fault = true;
+		}
+	}
+}
 							   					
 int main(void)
 {
@@ -389,67 +426,8 @@ int main(void)
 		{
 			if (Mode.startDelay) Mode.startDelay--;
 			
-			if (Mode.run && !Mode.startDelay)
-			{
-				LedInv;
-				
-				Calculation();
-				//Transmit();
-			
-				if (Motor.isDelay > 0) Motor.isDelay--;
-				
-				if (Motor.isStep) 
-				{
-					Motor.isStep--;
-					if (!Motor.isStep) Motor.isDelay = PauseBetweenSteps;
-				}
-				
-				Regulation();
-
-				if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
-				
-				if (!Mode.faultDelay && !Mode.fault)
-				{
-					FaultOn;
-					Mode.fault = true;
-				}
-			}
-			
-			if (Mode.run)
-			{
-				TCNT0 = 0;
-				TCNT1 = 0;
-				Measure.Fa = 0;
-				Measure.Fp = 0;
-				Measure.ovf = 0;
-			}
-			
-			if (Running && !Mode.run)
-			{
-				FaultOff;
-				Mode.run = true;
-				Mode.startDelay = StartDelay;
-				Mode.faultDelay = FaultDelay;
-				Mode.fault = false;
-				Timer0(true);
-				Timer1(true);
-			}
-			
-			if (!Running && Mode.run)
-			{
-				LedOff;
-				ImpOff;
-				Timer0(false);
-				Timer1(false);
-				ResetFilters();
-				Measure.Fa = 0;
-				Measure.Fp = 0;
-				Mode.run = false;
-				Mode.fault = false;
-				Mode.faultDelay = FaultDelay;
-				Mode.startDelay = 0;
-				Motor.operation = Locked;
-			}
+			StartOrStop();
+			Process(true);
 			
 			MainTimer.s = false;
 		}
