@@ -40,14 +40,14 @@
 #define Left 			20
 #define Locked			30
 
-#define ArraySize		  32		// these parameters also should be positioned in ROM
+#define ArraySize		  40		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.006		// if ratio > range up then motor left
-#define RangeDown		  -0.006
-#define LeftStepDuration  2			// sp1
-#define RightStepDuration 2			// sp1
-#define PauseBetweenSteps 20		// sp1
+#define RangeUp			  0.007		// if ratio > range up then motor left
+#define RangeDown		  -0.007
+#define LeftStepDuration  3			// sp1
+#define RightStepDuration 3			// sp1
+#define PauseBetweenSteps 40		// sp1
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
 
 #include <xc.h>
@@ -175,8 +175,8 @@ void Transmit()
 	static char fa[30], fp[30];
 	static char buffer[80];
 	
-	sprintf(fa, "A%.1f\r\n", Measure.Fa);
-	sprintf(fp, "P%.1f\r\n", Measure.Fp);
+	sprintf(fa, "A%.1f$", Measure.Fa);
+	sprintf(fp, "P%.1f$", Measure.Fp);
 	strcat(buffer, fa);
 	strcat(buffer, fp);
 	TxString(buffer);
@@ -270,7 +270,7 @@ void ResetFilters()
 
 void Calculation()
 {	
-	Measure.Fa = AverageA(TCNT0+(Measure.ovf*256));
+	Measure.Fa = AverageA(TCNT0+Measure.ovf*256);
 	Measure.Fp = AverageP(TCNT1);		
 }
 
@@ -297,26 +297,58 @@ void Initialization()
 	Mode.startDelay = 0;
 	Motor.operation = Locked;
 	
-	KalmanAramid(0, true);
-	KalmanPolyamide(0, true);
-	
 	Timer2(true);
-	USART(Init);
-	USART(On);
+	//USART(Init);
+	//USART(On);
 	sei();
 }
 
 void Step()
 {
 	ImpOn;
-	LedOn;
-	
-	if (Motor.operation == Left) _delay_ms(2);
-	if (Motor.operation == Right) _delay_ms(5);
-
-	LedOff;
+	_delay_ms(5);
 	ImpOff;
-	_delay_ms(5); 
+	_delay_ms(2);	 
+}
+
+void Step5()
+{
+	ImpOn;
+	
+	if (Motor.operation == Left) 
+	{
+		_delay_ms(2);
+		ImpOff;
+		_delay_ms(5);
+		return;
+	}
+	
+	if (Motor.operation == Right) 
+	{
+		_delay_ms(5);
+		ImpOff;
+		_delay_ms(2); 
+	}
+}
+
+void Step4()
+{
+	ImpOn;
+	
+	if (Motor.operation == Left)
+	{
+		_delay_us(1100);
+		ImpOff;
+		_delay_ms(5);
+		return;
+	}
+	
+	if (Motor.operation == Right)
+	{
+		_delay_ms(5);
+		ImpOff;
+		_delay_ms(1);
+	}
 }
 
 void Regulation()
@@ -352,7 +384,7 @@ int main(void)
 	Initialization();
 	
     while(1)
-    {			
+    {		
 		if (MainTimer.s)
 		{
 			if (Mode.startDelay) Mode.startDelay--;
@@ -360,8 +392,9 @@ int main(void)
 			if (Mode.run && !Mode.startDelay)
 			{
 				LedInv;
+				
 				Calculation();
-				Transmit();
+				//Transmit();
 			
 				if (Motor.isDelay > 0) Motor.isDelay--;
 				
@@ -408,8 +441,7 @@ int main(void)
 				ImpOff;
 				Timer0(false);
 				Timer1(false);
-				KalmanAramid(0, true);
-				KalmanPolyamide(0, true);
+				ResetFilters();
 				Measure.Fa = 0;
 				Measure.Fp = 0;
 				Mode.run = false;
@@ -422,6 +454,6 @@ int main(void)
 			MainTimer.s = false;
 		}
 		
-		if (Motor.isStep) Step();
+		if (Motor.isStep) Step5();
     }
 }

@@ -53,8 +53,8 @@
 #define Waiting			22
 #define Process			33
 
-#define IntervalR		3
-#define IntervalL		3
+#define IntervalR		4
+#define IntervalL		4
 #define AccelDelay		40
 #define AlarmDelay		600
 #define RangeUp			0.006

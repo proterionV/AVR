@@ -40,14 +40,14 @@
 #define Left 			20
 #define Locked			30
 	
-#define ArraySize		  32		// these parameters also should be positioned in ROM
+#define ArraySize		  45		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			  0.006		// if ratio > range up then motor left
 #define RangeDown		  -0.006
 #define LeftStepDuration  2			// sp1
 #define RightStepDuration 2			// sp1
-#define PauseBetweenSteps 20		// sp1
+#define PauseBetweenSteps 30		// sp1
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
 
 #define Eraser ' '
