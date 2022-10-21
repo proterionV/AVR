@@ -100,7 +100,7 @@ ISR(TIMER0_OVF_vect)
 void Timer1(bool enable)
 {
 	if (enable)
-	{
+	{	   
 		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);
 		return;
 	}
@@ -172,48 +172,10 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char fa[10], fp[10], d[10];
-	static char buffer[40];
-	
-	sprintf(fa, "A%.1f$", Measure.Fa);
-	sprintf(fp, "P%.1f$", Measure.Fp);
+	static char d[10];
+
 	sprintf(d, "D%.3f$\r\n", Measure.d);
-	//strcat(buffer, fa);
-	//strcat(buffer, fp);
-	
 	TxString(d);
-	
-	memset(buffer, 0, 32);
-}
-
-float AverageA(unsigned int aramidFrequency)
-{
-	static float values[ArraySize] = { 0 };
-	static int index = 0;
-	static float result = 0;
-	
-	if (++index >= ArraySize) index = 0;
-	
-	result -= values[index];
-	result += (float)aramidFrequency;
-	values[index] = (float)aramidFrequency;
-	
-	return ((float)result / ArraySize);
-}
-
-float AverageP(unsigned int polyamideFrequency)
-{
-	static float values[ArraySize] = { 0 };
-	static int index = 0;
-	static float result = 0;
-	
-	if (++index >= ArraySize) index = 0;
-	
-	result -= values[index];
-	result += (float)polyamideFrequency;
-	values[index] = (float)polyamideFrequency;
-	
-	return ((float)result / ArraySize);
 }
 
 float Average(float difference)
@@ -231,13 +193,9 @@ float Average(float difference)
 	return result / ArraySize;
 }
 
-void ResetFilters()
+void ResetFilter()
 {
-	for (int i = 0; i<ArraySize; i++)
-	{
-		AverageA(0);
-		AverageP(0);
-	}
+	for (int i = 0; i<ArraySize; i++) Average(0);
 }
 
 void Calculation()
@@ -266,6 +224,7 @@ void Initialization()
 
 	Measure.Fa = 0;
 	Measure.Fp = 0;
+	Measure.d = 0;
 	
 	Mode.run = false;
 	Mode.fault = false;
@@ -298,9 +257,10 @@ void StartOrStop()
 		ImpOff;
 		Timer0(false);
 		Timer1(false);
-		ResetFilters();
+		ResetFilter();
 		Measure.Fa = 0;
 		Measure.Fp = 0;
+		Measure.d = 0;
 		Mode.run = false;
 		Mode.fault = false;
 		Mode.faultDelay = FaultDelay;
@@ -314,7 +274,7 @@ void Step()
 	ImpOn;
 	_delay_ms(5);
 	ImpOff;
-	_delay_ms(2);	 
+	_delay_ms(1);	 
 }
 
 void Step5()
@@ -343,7 +303,7 @@ void Step4()
 	
 	if (Motor.operation == Left)
 	{
-		_delay_us(1100);
+		_delay_ms(1);
 		ImpOff;
 		_delay_ms(5);
 		return;
@@ -359,22 +319,21 @@ void Step4()
 
 void Regulation()
 {
-	static float difference = 0, ratio = 0;
+	static float ratio = 0;
 	
 	ratio = 1 - ((Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp));
-	difference = Average(Overfeed - ratio);
-	Measure.d = difference;
+	Measure.d = Average(Overfeed - ratio);
 	
 	if (Motor.isStep || Motor.isDelay) return;
 	
-	if ((difference > RangeDown && difference < RangeUp))
+	if ((Measure.d > RangeDown && Measure.d < RangeUp))
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
 		return;
 	}
 	
-	if (difference >= RangeUp) 
+	if (Measure.d >= RangeUp) 
 	{
 		Motor.operation = Left;
 		Motor.isStep = LeftStepDuration; 
@@ -432,6 +391,6 @@ int main(void)
 			MainTimer.s = false;
 		}
 		
-		if (Motor.isStep) Step5();
+		if (Motor.isStep) Step4();
     }
 }
