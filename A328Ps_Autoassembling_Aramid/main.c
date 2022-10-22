@@ -28,6 +28,7 @@
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
  
+#define Connect 	Check(PIND, PIND2)	// if connected every sec data transmit
 #define Running		Check(PIND, PIND3)  // spindle run input
 #define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
 #define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
@@ -45,9 +46,9 @@
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			  0.007		// if ratio > range up then motor left
 #define RangeDown		  -0.007
-#define LeftStepDuration  3			// seconds
+#define LeftStepDuration  5			// seconds
 #define RightStepDuration 3			// seconds
-#define PauseBetweenSteps 40		// seconds
+#define PauseBetweenSteps 40			// seconds
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
 #include <xc.h>
@@ -78,6 +79,7 @@ struct ModeControl
 struct MotorControl
 {
 	unsigned int isDelay, isStep, operation;
+	bool isFirstPulse;
 } Motor; 
 
 void Timer0(bool enable)
@@ -86,6 +88,7 @@ void Timer0(bool enable)
 	{
 		TCCR0B = (1 << CS02)|(1 << CS01)|(1 << CS00);
 		High(TIMSK0, TOIE0);
+		TCNT0 = 0;
 		return;
 	}
 	
@@ -102,6 +105,7 @@ void Timer1(bool enable)
 	if (enable)
 	{	   
 		TCCR1B = (1 << CS12)|(1 << CS11)|(1 << CS10);
+		TCNT1 = 0;
 		return;
 	}
 	
@@ -136,11 +140,6 @@ ISR(TIMER2_OVF_vect)
 	TCNT2 = 130;
 }
 
-ISR(ANALOG_COMP_vect)
-{
-	Measure.Fp++;
-}
-
 void USART(unsigned short option)
 {
 	switch (option)
@@ -172,17 +171,29 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char d[10];
+	static char d[10], a[10], p[10];
 
-	sprintf(d, "D%.3f$\r\n", Measure.d);
+	sprintf(a, "\r\nA%.1f$ ", Measure.Fa);
+	sprintf(p, "P%.1f$ ", Measure.Fp);
+	sprintf(d, "D%.3f$", Measure.d);
+	TxString(a);
+	TxString(p);
 	TxString(d);
 }
 
-float Average(float difference)
+float Average(float difference, bool isReset)
 {
 	static float values[ArraySize] = { 0 };
 	static int index = 0;
 	static float result = 0;
+	
+	if (isReset)
+	{
+		for (int i = 0; i<ArraySize; i++) values[i] = 0;
+		index = 0;
+		result = 0;
+		return 0;
+	}
 	
 	if (++index >= ArraySize) index = 0;
 	
@@ -193,15 +204,11 @@ float Average(float difference)
 	return result / ArraySize;
 }
 
-void ResetFilter()
-{
-	for (int i = 0; i<ArraySize; i++) Average(0);
-}
-
 void Calculation()
 {	
 	Measure.Fa = (float)TCNT0+Measure.ovf*256;
 	Measure.Fp = (float)TCNT1;
+	Measure.d = Average(Overfeed - (1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp)), false);
 	
 	TCNT0 = 0;
 	TCNT1 = 0;
@@ -231,6 +238,7 @@ void Initialization()
 	Mode.faultDelay = FaultDelay;
 	Mode.startDelay = 0;
 	Motor.operation = Locked;
+	Motor.isFirstPulse = true;
 	
 	Timer2(true);
 	USART(Init);
@@ -257,7 +265,7 @@ void StartOrStop()
 		ImpOff;
 		Timer0(false);
 		Timer1(false);
-		ResetFilter();
+		Average(0, true);
 		Measure.Fa = 0;
 		Measure.Fp = 0;
 		Measure.d = 0;
@@ -275,6 +283,33 @@ void Step()
 	_delay_ms(5);
 	ImpOff;
 	_delay_ms(1);	 
+}
+
+void Step4()
+{
+	ImpOn;
+	
+	if (Motor.operation == Left)
+	{
+		if (Motor.isFirstPulse)
+		{
+			_delay_ms(5);
+			Motor.isFirstPulse = false;
+			return;
+		}
+		
+		_delay_us(900);
+		ImpOff;
+		_delay_ms(5);
+		return;
+	}
+	
+	if (Motor.operation == Right)
+	{
+		_delay_ms(5);
+		ImpOff;
+		_delay_ms(1);
+	}
 }
 
 void Step5()
@@ -297,33 +332,8 @@ void Step5()
 	}
 }
 
-void Step4()
-{
-	ImpOn;
-	
-	if (Motor.operation == Left)
-	{
-		_delay_ms(1);
-		ImpOff;
-		_delay_ms(5);
-		return;
-	}
-	
-	if (Motor.operation == Right)
-	{
-		_delay_ms(5);
-		ImpOff;
-		_delay_ms(1);
-	}
-}
-
 void Regulation()
 {
-	static float ratio = 0;
-	
-	ratio = 1 - ((Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp));
-	Measure.d = Average(Overfeed - ratio);
-	
 	if (Motor.isStep || Motor.isDelay) return;
 	
 	if ((Measure.d > RangeDown && Measure.d < RangeUp))
@@ -336,7 +346,8 @@ void Regulation()
 	if (Measure.d >= RangeUp) 
 	{
 		Motor.operation = Left;
-		Motor.isStep = LeftStepDuration; 
+		Motor.isStep = LeftStepDuration;
+		Motor.isFirstPulse = true; 
 	}
 	else 
 	{
@@ -345,7 +356,7 @@ void Regulation()
 	}
 }
 
-void Process(bool isTransmit)
+void Process()
 {
 	if (Mode.run && !Mode.startDelay)
 	{
@@ -353,7 +364,7 @@ void Process(bool isTransmit)
 		
 		Calculation();
 		
-		if (isTransmit) Transmit();
+		if (Connect) Transmit();
 		
 		if (Motor.isDelay > 0) Motor.isDelay--;
 		
@@ -375,7 +386,7 @@ void Process(bool isTransmit)
 	}
 }
 							   					
-int main(void)
+int main()
 {
 	Initialization();
 	
@@ -386,7 +397,7 @@ int main(void)
 			if (Mode.startDelay) Mode.startDelay--;
 			
 			StartOrStop();
-			Process(true);
+			Process();
 			
 			MainTimer.s = false;
 		}
