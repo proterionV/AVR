@@ -18,20 +18,21 @@
 #define ImpOff		Low(PORTB, PORTB0)
 #define ImpInv		Inv(PORTB, PORTB0)
 
-#define Fault		Check(PORTB, PORTB1) // output for open contact of yarn brake
+#define Fault		Check(PORTB, PORTB1)	// output for open contact of yarn brake
 #define FaultOn		High(PORTB, PORTB1)
 #define FaultOff	Low(PORTB, PORTB1)
 #define FaultInv	Inv(PORTB, PORTB1)
 
-#define Led			Check(PORTB, PORTB5) // operating led period = 1984 ms if not something wrong
+#define Led			Check(PORTB, PORTB5)	// operating led period = 1984 ms if not something wrong
 #define LedOn		High(PORTB, PORTB5)
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
  
-#define Connect 	Check(PIND, PIND2)	// if connected every sec data transmit
-#define Running		Check(PIND, PIND3)  // spindle run input
-#define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
-#define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
+#define TxEnable 	Check(PIND, PIND2)		// if connected every sec data transmit
+#define Running		Check(PIND, PIND3)		// spindle run input
+#define Aramid		Check(PIND, PIND4)		// aramid speed pulses input
+#define Polyamide   Check(PIND, PIND5)		// polyamide speed pulses input
+#define LcdEnable	Check(PIND, PIND6)		// 
 
 #define Off				0
 #define On				1
@@ -48,7 +49,7 @@
 #define RangeDown		  -0.007
 #define LeftStepDuration  5			// seconds
 #define RightStepDuration 3			// seconds
-#define PauseBetweenSteps 40			// seconds
+#define PauseBetweenSteps 40		// seconds
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
 #include <xc.h>
@@ -57,11 +58,13 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <string.h>
+#include <avr/wdt.h>
+#include "lcd/lcdpcf8574/lcdpcf8574.h"
 
 struct TimeControl
 {
 	unsigned int ms;
-	bool s;
+	bool handle;
 } MainTimer;
 
 struct Data
@@ -73,7 +76,7 @@ struct Data
 struct ModeControl
 {
 	unsigned int startDelay, faultDelay;
-	bool fault, run;
+	bool fault, run, lcdConnected;
 } Mode;
 
 struct MotorControl
@@ -133,7 +136,7 @@ ISR(TIMER2_OVF_vect)
 
 	if (MainTimer.ms >= 1000)
 	{
-		MainTimer.s = true;
+		MainTimer.handle = true;
 		MainTimer.ms = 0;
 	}
 	
@@ -173,12 +176,27 @@ void Transmit()
 {
 	static char d[10], a[10], p[10];
 
-	sprintf(a, "\r\nA%.1f$ ", Measure.Fa);
+	sprintf(a, "A%.1f$ ", Measure.Fa);
 	sprintf(p, "P%.1f$ ", Measure.Fp);
-	sprintf(d, "D%.3f$", Measure.d);
+	sprintf(d, "D%.3f$ ", Measure.d);
 	TxString(a);
 	TxString(p);
 	TxString(d);
+}
+
+void Print()
+{
+	static char a[10], p[10], d[10];
+
+	sprintf(a, "%.1f", Measure.Fa);
+	sprintf(p, "%.1f", Measure.Fp);
+	sprintf(d, "%.3f", Measure.d);
+	lcd_gotoxy(0, 0);
+	lcd_puts(a);
+	lcd_gotoxy(0, 1);
+	lcd_puts(p);
+	lcd_gotoxy(7, 0);
+	lcd_puts(d);
 }
 
 float Average(float difference, bool isReset)
@@ -206,7 +224,7 @@ float Average(float difference, bool isReset)
 
 void Calculation()
 {	
-	Measure.Fa = (float)TCNT0+Measure.ovf*256;
+	Measure.Fa = (float)TCNT0 + Measure.ovf*256;
 	Measure.Fp = (float)TCNT1;
 	Measure.d = Average(Overfeed - (1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp)), false);
 	
@@ -227,7 +245,7 @@ void Initialization()
 	PORTD = 0b00000011;
 	
 	MainTimer.ms = 0;
-	MainTimer.s = false;
+	MainTimer.handle = false;
 
 	Measure.Fa = 0;
 	Measure.Fp = 0;
@@ -244,6 +262,8 @@ void Initialization()
 	USART(Init);
 	USART(On);
 	sei();
+	
+	wdt_enable(WDTO_500MS);
 }
 
 void StartOrStop()
@@ -274,6 +294,23 @@ void StartOrStop()
 		Mode.faultDelay = FaultDelay;
 		Mode.startDelay = 0;
 		Motor.operation = Locked;
+	}
+}
+
+void LcdConnect()
+{
+	if (LcdEnable && !Mode.lcdConnected)
+	{
+		lcd_init(LCD_DISP_ON);
+		lcd_led(false);
+		lcd_clrscr();
+		lcd_home();
+		Mode.lcdConnected = true;
+	}
+	
+	if (!LcdEnable && Mode.lcdConnected)
+	{
+		Mode.lcdConnected = false;
 	}
 }
 
@@ -334,7 +371,7 @@ void Step5()
 
 void Regulation()
 {
-	if (Motor.isStep || Motor.isDelay) return;
+	if (Motor.isStep) return;
 	
 	if ((Measure.d > RangeDown && Measure.d < RangeUp))
 	{
@@ -342,6 +379,8 @@ void Regulation()
 		Motor.operation = Locked;
 		return;
 	}
+	
+	if (Motor.isDelay) return;
 	
 	if (Measure.d >= RangeUp) 
 	{
@@ -364,7 +403,8 @@ void Process()
 		
 		Calculation();
 		
-		if (Connect) Transmit();
+		if (TxEnable) Transmit();
+		if (Mode.lcdConnected) Print();
 		
 		if (Motor.isDelay > 0) Motor.isDelay--;
 		
@@ -392,16 +432,19 @@ int main()
 	
     while(1)
     {		
-		if (MainTimer.s)
-		{
+		if (MainTimer.handle)
+		{	
 			if (Mode.startDelay) Mode.startDelay--;
 			
+			LcdConnect();
 			StartOrStop();
 			Process();
 			
-			MainTimer.s = false;
+			MainTimer.handle = false;
 		}
 		
 		if (Motor.isStep) Step4();
+		
+		wdt_reset();
     }
 }

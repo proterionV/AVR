@@ -110,9 +110,33 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="lcd\i2chw\i2cmaster.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="lcd\i2chw\twimaster.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="lcd\lcdpcf8574\lcdpcf8574.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="lcd\lcdpcf8574\lcdpcf8574.h">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="lcd\pcf8574\pcf8574.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="lcd\pcf8574\pcf8574.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="main.c">
       <SubType>compile</SubType>
     </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="lcd" />
+    <Folder Include="lcd\i2chw" />
+    <Folder Include="lcd\lcdpcf8574" />
+    <Folder Include="lcd\pcf8574" />
   </ItemGroup>
   <Import Project="$(AVRSTUDIO_EXE_PATH)\\Vs\\Compiler.targets" />
 </Project>
