@@ -42,14 +42,14 @@
 #define Left 			20
 #define Locked			30
 
-#define ArraySize		  40		// these parameters also should be positioned in ROM
+#define ArraySize		  45		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.007		// if ratio > range up then motor left
-#define RangeDown		  -0.007
-#define LeftStepDuration  5			// seconds
+#define RangeUp			  0.005		// if ratio > range up then motor left
+#define RangeDown		  -0.005
+#define LeftStepDuration  3			// seconds
 #define RightStepDuration 3			// seconds
-#define PauseBetweenSteps 40		// seconds
+#define PauseBetweenSteps 45		// seconds
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
 #include <xc.h>
@@ -255,6 +255,7 @@ void Initialization()
 	Mode.fault = false;
 	Mode.faultDelay = FaultDelay;
 	Mode.startDelay = 0;
+	Mode.lcdConnected = false;
 	Motor.operation = Locked;
 	Motor.isFirstPulse = true;
 	
@@ -314,12 +315,31 @@ void LcdConnect()
 	}
 }
 
-void Step()
+void Step3()
 {
 	ImpOn;
-	_delay_ms(5);
-	ImpOff;
-	_delay_ms(1);	 
+	
+	if (Motor.operation == Right)
+	{
+		if (Motor.isFirstPulse)
+		{
+			_delay_ms(5);
+			Motor.isFirstPulse = false;
+			return;
+		}
+		
+		_delay_us(800);
+		ImpOff;
+		_delay_ms(5);
+		return;
+	}
+	
+	if (Motor.operation == Left)
+	{
+		_delay_ms(5);
+		ImpOff;
+		_delay_ms(1);
+	}
 }
 
 void Step4()
@@ -335,7 +355,7 @@ void Step4()
 			return;
 		}
 		
-		_delay_us(900);
+		_delay_us(800);
 		ImpOff;
 		_delay_ms(5);
 		return;
@@ -353,19 +373,26 @@ void Step5()
 {
 	ImpOn;
 	
-	if (Motor.operation == Left) 
+	if (Motor.operation == Right)
 	{
-		_delay_ms(2);
+		if (Motor.isFirstPulse)
+		{
+			_delay_ms(5);
+			Motor.isFirstPulse = false;
+			return;
+		}
+		
+		_delay_us(500);
 		ImpOff;
 		_delay_ms(5);
 		return;
 	}
 	
-	if (Motor.operation == Right) 
+	if (Motor.operation == Left)
 	{
 		_delay_ms(5);
 		ImpOff;
-		_delay_ms(2); 
+		_delay_ms(1);
 	}
 }
 
@@ -436,14 +463,14 @@ int main()
 		{	
 			if (Mode.startDelay) Mode.startDelay--;
 			
-			LcdConnect();
+			//LcdConnect();
 			StartOrStop();
 			Process();
 			
 			MainTimer.handle = false;
 		}
 		
-		if (Motor.isStep) Step4();
+		if (Motor.isStep) Step3();
 		
 		wdt_reset();
     }
