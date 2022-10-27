@@ -1,3 +1,5 @@
+char* buffer = malloc(4 * sizeof(char));
+
 float KalmanAramid(unsigned int aramidFrequecy, bool reset)
 {
 	static float measureVariation = 1.5, estimateVariation = 1, speedVariation = 0.01;

@@ -59,31 +59,30 @@
 #include <stdbool.h>
 #include <string.h>
 #include <avr/wdt.h>
-#include "lcd/lcdpcf8574/lcdpcf8574.h"
 
 struct TimeControl
 {
 	unsigned int ms;
 	bool handle;
-} MainTimer;
+} MainTimer = { 0, false };
 
 struct Data
 {
 	unsigned int ovf;
 	float Fa, Fp, d;
-} Measure;
+} Measure = { 0, 0, 0, 0 };
 
 struct ModeControl
 {
 	unsigned int startDelay, faultDelay;
-	bool fault, run, lcdConnected;
-} Mode;
+	bool fault, run;
+} Mode = { 0, FaultDelay, false, false };
 
 struct MotorControl
 {
 	unsigned int isDelay, isStep, operation;
 	bool isFirstPulse;
-} Motor; 
+} Motor = { 0, 0, Locked, true }; 
 
 void Timer0(bool enable)
 {
@@ -174,29 +173,15 @@ void TxString(const char* s)
 
 void Transmit()
 {
-	static char d[10], a[10], p[10];
+	static char d[8] = {}, a[8] = {}, p[8] = {}, buffer[32] = {}; 
 
-	sprintf(a, "A%.1f$ ", Measure.Fa);
-	sprintf(p, "P%.1f$ ", Measure.Fp);
-	sprintf(d, "D%.3f$ ", Measure.d);
-	TxString(a);
-	TxString(p);
-	TxString(d);
-}
-
-void Print()
-{
-	static char a[10], p[10], d[10];
-
-	sprintf(a, "%.1f", Measure.Fa);
-	sprintf(p, "%.1f", Measure.Fp);
-	sprintf(d, "%.3f", Measure.d);
-	lcd_gotoxy(0, 0);
-	lcd_puts(a);
-	lcd_gotoxy(0, 1);
-	lcd_puts(p);
-	lcd_gotoxy(7, 0);
-	lcd_puts(d);
+	sprintf(a, "A%.1f$", Measure.Fa);
+	sprintf(p, "P%.1f$", Measure.Fp);
+	sprintf(d, "D%.3f", Measure.d);
+	strcat(buffer, a);
+	strcat(buffer, p);
+	strcat(buffer, d);
+	TxString(buffer);
 }
 
 float Average(float difference, bool isReset)
@@ -244,21 +229,6 @@ void Initialization()
 	DDRD = 0b00000010;
 	PORTD = 0b00000011;
 	
-	MainTimer.ms = 0;
-	MainTimer.handle = false;
-
-	Measure.Fa = 0;
-	Measure.Fp = 0;
-	Measure.d = 0;
-	
-	Mode.run = false;
-	Mode.fault = false;
-	Mode.faultDelay = FaultDelay;
-	Mode.startDelay = 0;
-	Mode.lcdConnected = false;
-	Motor.operation = Locked;
-	Motor.isFirstPulse = true;
-	
 	Timer2(true);
 	USART(Init);
 	USART(On);
@@ -295,23 +265,6 @@ void StartOrStop()
 		Mode.faultDelay = FaultDelay;
 		Mode.startDelay = 0;
 		Motor.operation = Locked;
-	}
-}
-
-void LcdConnect()
-{
-	if (LcdEnable && !Mode.lcdConnected)
-	{
-		lcd_init(LCD_DISP_ON);
-		lcd_led(false);
-		lcd_clrscr();
-		lcd_home();
-		Mode.lcdConnected = true;
-	}
-	
-	if (!LcdEnable && Mode.lcdConnected)
-	{
-		Mode.lcdConnected = false;
 	}
 }
 
@@ -431,7 +384,6 @@ void Process()
 		Calculation();
 		
 		if (TxEnable) Transmit();
-		if (Mode.lcdConnected) Print();
 		
 		if (Motor.isDelay > 0) Motor.isDelay--;
 		
@@ -463,7 +415,6 @@ int main()
 		{	
 			if (Mode.startDelay) Mode.startDelay--;
 			
-			//LcdConnect();
 			StartOrStop();
 			Process();
 			
