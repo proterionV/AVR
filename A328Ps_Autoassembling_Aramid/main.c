@@ -42,14 +42,14 @@
 #define Left 			20
 #define Locked			30
 
-#define ArraySize		  45		// these parameters also should be positioned in ROM
+#define ArraySize		  64		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			  0.005		// if ratio > range up then motor left
 #define RangeDown		  -0.005
-#define LeftStepDuration  3			// seconds
-#define RightStepDuration 3			// seconds
-#define PauseBetweenSteps 45		// seconds
+#define LeftStepDuration  4			// seconds
+#define RightStepDuration 4			// seconds
+#define PauseBetweenSteps 8			// seconds
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
 #include <xc.h>
@@ -182,6 +182,8 @@ void Transmit()
 	strcat(buffer, p);
 	strcat(buffer, d);
 	TxString(buffer);
+	
+	for (int i=0; i<32; i++) buffer[i] = 0;
 }
 
 float Average(float difference, bool isReset)
@@ -234,7 +236,7 @@ void Initialization()
 	USART(On);
 	sei();
 	
-	wdt_enable(WDTO_500MS);
+	wdt_enable(WDTO_8S);
 }
 
 void StartOrStop()
@@ -266,7 +268,7 @@ void StartOrStop()
 		Mode.startDelay = 0;
 		Motor.operation = Locked;
 	}
-}
+}			  
 
 void Step3()
 {
@@ -335,7 +337,7 @@ void Step5()
 			return;
 		}
 		
-		_delay_us(500);
+		_delay_us(800);
 		ImpOff;
 		_delay_ms(5);
 		return;
