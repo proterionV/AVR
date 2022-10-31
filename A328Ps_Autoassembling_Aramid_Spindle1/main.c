@@ -28,6 +28,7 @@
 #define LedOff		Low(PORTB, PORTB5)
 #define LedInv		Inv(PORTB, PORTB5)
  
+#define TxEnable 	Check(PIND, PIND2)		// if connected every sec data transmit
 #define Running		Check(PIND, PIND3)  // spindle run input
 #define Aramid		Check(PIND, PIND4)  // aramid speed pulses input
 #define Polyamide   Check(PIND, PIND5)  // polyamide speed pulses input
@@ -40,17 +41,15 @@
 #define Left 			20
 #define Locked			30
 	
-#define ArraySize		  45		// these parameters also should be positioned in ROM
+#define ArraySize		  64		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.006		// if ratio > range up then motor left
-#define RangeDown		  -0.006
-#define LeftStepDuration  2			// sp1
-#define RightStepDuration 2			// sp1
-#define PauseBetweenSteps 30		// sp1
+#define RangeUp			  0.005		// if ratio > range up then motor left
+#define RangeDown		  -0.005
+#define LeftStepDuration  3			// sp1
+#define RightStepDuration 3			// sp1
+#define PauseBetweenSteps 3		// sp1
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
-
-#define Eraser ' '
 
 #include <xc.h>
 #include <avr/interrupt.h>
@@ -58,29 +57,30 @@
 #include <stdio.h>			
 #include <stdbool.h>
 #include <string.h>
+#include <avr/wdt.h>
 
 struct TimeControl
 {
 	unsigned int ms;
-	bool s;
-} MainTimer;
+	bool handle;
+} MainTimer = { 0, false };
 
 struct Data
 {
-	unsigned short ovf;
-	float Fa,Fp;
-} Measure;
+	unsigned int ovf;
+	float Fa, Fp, d;
+} Measure = { 0, 0, 0, 0 };
 
 struct ModeControl
 {
-	unsigned int startDelay,faultDelay;
-	bool fault,run;
-} Mode;
+	unsigned int startDelay, faultDelay;
+	bool fault, run;
+} Mode = { 0, FaultDelay, false, false };
 
 struct MotorControl
 {
-	unsigned int isDelay,isStep,operation;
-} Motor; 
+	unsigned int isDelay, isStep, operation;
+} Motor = { 0, 0, Locked };
 
 void Timer0(bool enable)
 {
@@ -131,7 +131,7 @@ ISR(TIMER2_OVF_vect)
 
 	if (MainTimer.ms >= 1000)
 	{
-		MainTimer.s = true;
+		MainTimer.handle = true;
 		MainTimer.ms = 0;
 	}
 	
@@ -172,34 +172,27 @@ void TxString(const char* s)
 	for (int i=0; s[i]; i++) TxChar(s[i]);
 }
 
-float AverageA(unsigned int aramidFrequency)
+float Average(float difference, bool isReset)
 {
 	static float values[ArraySize] = { 0 };
 	static int index = 0;
 	static float result = 0;
 	
-	if (++index >= ArraySize) index = 0;
-		
-	result -= values[index];					
-	result += (float)aramidFrequency;		
-	values[index] = (float)aramidFrequency;	
-	
-	return ((float)result / ArraySize);
-}
-
-float AverageP(unsigned int polyamideFrequency)
-{
-	static float values[ArraySize] = { 0 };
-	static int index = 0;
-	static float result = 0;
+	if (isReset)
+	{
+		for (int i = 0; i<ArraySize; i++) values[i] = 0;
+		index = 0;
+		result = 0;
+		return 0;
+	}
 	
 	if (++index >= ArraySize) index = 0;
-		
-	result -= values[index];					
-	result += (float)polyamideFrequency;		
-	values[index] = (float)polyamideFrequency;
-		
-	return ((float)result / ArraySize);
+	
+	result -= values[index];
+	result += difference;
+	values[index] = difference;
+	
+	return result / ArraySize;
 }
 
 void Transmit()
@@ -216,19 +209,11 @@ void Transmit()
 	 memset(buffer, 0, 60);
 }
 
-void ResetFilters()
-{
-	for (int i = 0; i<ArraySize; i++)
-	{
-		AverageA(0);
-		AverageP(0);
-	}
-}
-
 void Calculation()
 {	
-	Measure.Fa = AverageA(TCNT0+(Measure.ovf*256));
-	Measure.Fp = AverageP(TCNT1);		
+	Measure.Fa = (float)TCNT0 + Measure.ovf*256;
+	Measure.Fp = (float)TCNT1;
+	Measure.d = Average(Overfeed - (1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp)), false);		
 }
 
 void Initialization()
@@ -242,62 +227,116 @@ void Initialization()
 	DDRD = 0b00000010;
 	PORTD = 0b00000011;
 	
-	MainTimer.ms = 0;
-	MainTimer.s = false;
-	
-	Measure.Fa = 0;
-	Measure.Fp = 0;
-	
-	Mode.run = false;
-	Mode.fault = false;
-	Mode.faultDelay = FaultDelay;
-	Mode.startDelay = 0;
-	Motor.operation = Locked;
-	
 	Timer2(true);
 	USART(Init);
 	USART(On);
 	sei();
+	
+	wdt_enable(WDTO_8S);
+}
+
+void StartOrStop()
+{
+	if (Running && !Mode.run)
+	{
+		FaultOff;
+		Mode.run = true;
+		Mode.startDelay = StartDelay;
+		Mode.faultDelay = FaultDelay;
+		Mode.fault = false;
+		Timer0(true);
+		Timer1(true);
+	}
+	
+	if (!Running && Mode.run)
+	{
+		LedOff;
+		ImpOff;
+		Timer0(false);
+		Timer1(false);
+		Average(0, true);
+		Measure.Fa = 0;
+		Measure.Fp = 0;
+		Measure.d = 0;
+		Mode.run = false;
+		Mode.fault = false;
+		Mode.faultDelay = FaultDelay;
+		Mode.startDelay = 0;
+		Motor.operation = Locked;
+	}
 }
 
 void Step()
 {
 	ImpOn;
-	LedOn;
 	
 	if (Motor.operation == Right) _delay_us(500);
 	if (Motor.operation == Left) _delay_ms(5);
 
-	LedOff;
 	ImpOff;
+	
 	_delay_ms(5);
 }
 
 void Regulation()
 {
-	static float difference = 0, ratio = 0;
+	if (Motor.isStep) return;
 	
-	ratio = 1 - ((Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp));
-	difference = Overfeed - ratio;
-	
-	if (Motor.isStep || Motor.isDelay) return;
-	
-	if ((difference > RangeDown && difference < RangeUp))
+	if ((Measure.d > RangeDown && Measure.d < RangeUp))
 	{
 		Mode.faultDelay = FaultDelay;
 		Motor.operation = Locked;
 		return;
 	}
 	
-	if (difference >= RangeUp) 
+	if (Motor.isDelay) return;
+	
+	if (Measure.d >= RangeUp)
 	{
 		Motor.operation = Left;
-		Motor.isStep = LeftStepDuration; 
+		Motor.isStep = LeftStepDuration;
 	}
-	else 
+	else
 	{
 		Motor.operation = Right;
 		Motor.isStep = RightStepDuration;
+	}
+}
+
+void Process()
+{
+	if (Mode.run && !Mode.startDelay)
+	{
+		LedInv;
+		
+		Calculation();
+		
+		if (TxEnable) Transmit();
+		
+		if (Motor.isDelay > 0) Motor.isDelay--;
+		
+		if (Motor.isStep)
+		{
+			Motor.isStep--;
+			if (!Motor.isStep) Motor.isDelay = PauseBetweenSteps;
+		}
+		
+		Regulation();
+
+		if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
+		
+		if (!Mode.faultDelay && !Mode.fault)
+		{
+			FaultOn;
+			Mode.fault = true;
+		}
+	}
+	
+	if (Mode.run)
+	{
+		TCNT0 = 0;
+		TCNT1 = 0;
+		Measure.ovf = 0;
 	}
 }
 							   					
@@ -307,73 +346,18 @@ int main(void)
 	
     while(1)
     {	
-		if (MainTimer.s)
+		if (MainTimer.handle)
 		{	
 			if (Mode.startDelay) Mode.startDelay--;
 			
-			if (Mode.run && !Mode.startDelay)
-			{
-				LedInv;
-				Calculation();
-				Transmit();
+			StartOrStop();
+			Process();
 			
-				if (Motor.isDelay > 0) Motor.isDelay--;
-				
-				if (Motor.isStep) 
-				{
-					Motor.isStep--;
-					if (!Motor.isStep) Motor.isDelay = PauseBetweenSteps;
-				}
-				
-				Regulation();
-
-				if (Motor.operation != Locked && Mode.faultDelay && !Mode.fault) Mode.faultDelay--;
-				
-				if (!Mode.faultDelay && !Mode.fault)
-				{
-					FaultOn;
-					Mode.fault = true;
-				}
-			}
-			
-			if (Mode.run)
-			{
-				TCNT0 = 0;
-				TCNT1 = 0;
-				Measure.Fp = 0;
-				Measure.ovf = 0;
-			}
-			
-			if (Running && !Mode.run)
-			{
-				FaultOff;
-				Mode.run = true;
-				Mode.startDelay = StartDelay;
-				Mode.faultDelay = FaultDelay;
-				Mode.fault = false;
-				Timer0(true);
-				Timer1(true);
-			}
-			
-			if (!Running && Mode.run)
-			{
-				LedOff;
-				ImpOff;
-				Timer0(false);
-				Timer1(false);
-				ResetFilters();
-				Measure.Fa = 0;
-				Measure.Fp = 0;
-				Mode.run = false;
-				Mode.fault = false;
-				Mode.faultDelay = FaultDelay;
-				Mode.startDelay = 0;
-				Motor.operation = Locked;
-			}
-			
-			MainTimer.s = false;
+			MainTimer.handle = false;
 		}
 		
 		if (Motor.isStep) Step();
+		
+		wdt_reset();
     }
 }

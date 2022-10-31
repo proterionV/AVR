@@ -47,9 +47,9 @@
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			  0.005		// if ratio > range up then motor left
 #define RangeDown		  -0.005
-#define LeftStepDuration  4			// seconds
-#define RightStepDuration 4			// seconds
-#define PauseBetweenSteps 8			// seconds
+#define LeftStepDuration  2			// seconds	 sp5 - 4	   sp3 - 2	   rest 3
+#define RightStepDuration 3			// seconds		sp5 - 4				    rest 3
+#define PauseBetweenSteps 32		// seconds
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
 #include <xc.h>
@@ -213,11 +213,7 @@ void Calculation()
 {	
 	Measure.Fa = (float)TCNT0 + Measure.ovf*256;
 	Measure.Fp = (float)TCNT1;
-	Measure.d = Average(Overfeed - (1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp)), false);
-	
-	TCNT0 = 0;
-	TCNT1 = 0;
-	Measure.ovf = 0;		
+	Measure.d = Average(Overfeed - (1 - (Measure.Fa == 0 ? 1 : Measure.Fa) / (Measure.Fp == 0 ? 1 : Measure.Fp)), false);		
 }
 
 void Initialization()
@@ -283,7 +279,7 @@ void Step3()
 			return;
 		}
 		
-		_delay_us(800);
+		_delay_ms(1);
 		ImpOff;
 		_delay_ms(5);
 		return;
@@ -310,7 +306,7 @@ void Step4()
 			return;
 		}
 		
-		_delay_us(800);
+		_delay_ms(1);
 		ImpOff;
 		_delay_ms(5);
 		return;
@@ -332,12 +328,12 @@ void Step5()
 	{
 		if (Motor.isFirstPulse)
 		{
-			_delay_ms(5);
+			_delay_us(900);
 			Motor.isFirstPulse = false;
 			return;
 		}
 		
-		_delay_us(800);
+		_delay_ms(1);
 		ImpOff;
 		_delay_ms(5);
 		return;
@@ -349,6 +345,14 @@ void Step5()
 		ImpOff;
 		_delay_ms(1);
 	}
+}
+
+void Step()
+{
+	ImpOn;
+	_delay_ms(5);
+	ImpOff;
+	_delay_ms(1);
 }
 
 void Regulation()
@@ -404,6 +408,13 @@ void Process()
 			FaultOn;
 			Mode.fault = true;
 		}
+	}
+	
+	if (Mode.run)
+	{
+		TCNT0 = 0;
+		TCNT1 = 0;
+		Measure.ovf = 0;
 	}
 }
 							   					
