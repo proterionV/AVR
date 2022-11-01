@@ -47,8 +47,8 @@
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
 #define RangeUp			  0.005		// if ratio > range up then motor left
 #define RangeDown		  -0.005
-#define LeftStepDuration  2			// seconds	 sp5 - 4	   sp3 - 2	   rest 3
-#define RightStepDuration 3			// seconds		sp5 - 4				    rest 3
+#define LeftStepDuration  4			// seconds	 sp5 - 4	   sp3 - 2	   rest 3
+#define RightStepDuration 4			// seconds		sp5 - 4				    rest 3
 #define PauseBetweenSteps 32		// seconds
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
@@ -328,12 +328,12 @@ void Step5()
 	{
 		if (Motor.isFirstPulse)
 		{
-			_delay_us(900);
+			_delay_ms(1);
 			Motor.isFirstPulse = false;
 			return;
 		}
 		
-		_delay_ms(1);
+		_delay_us(500);
 		ImpOff;
 		_delay_ms(5);
 		return;
@@ -350,9 +350,9 @@ void Step5()
 void Step()
 {
 	ImpOn;
-	_delay_ms(5);
+	_delay_us(450);
 	ImpOff;
-	_delay_ms(1);
+	_delay_ms(5);
 }
 
 void Regulation()
@@ -434,7 +434,7 @@ int main()
 			MainTimer.handle = false;
 		}
 		
-		if (Motor.isStep) Step3();
+		if (Motor.isStep) Step5();
 		
 		wdt_reset();
     }
