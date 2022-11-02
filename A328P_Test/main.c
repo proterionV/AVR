@@ -581,7 +581,7 @@ void Step(short direction)
 	
 	if (direction) 
 	{
-		_delay_ms(1);  // invert - 800 us   // direct 1 ms
+		_delay_us(500);  // invert - 800 us   // direct 1 ms
 		ImpOff;
 		_delay_ms(5);
 		return;
@@ -589,7 +589,7 @@ void Step(short direction)
 	
 	_delay_ms(5);
 	ImpOff;
-	_delay_ms(1);
+	_delay_ms(5);
 }
 
 void Control()

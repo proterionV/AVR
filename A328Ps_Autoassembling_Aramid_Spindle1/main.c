@@ -48,7 +48,7 @@
 #define RangeDown		  -0.005
 #define LeftStepDuration  3			// sp1
 #define RightStepDuration 3			// sp1
-#define PauseBetweenSteps 3		// sp1
+#define PauseBetweenSteps 32			// sp1
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10)
 
 #include <xc.h>

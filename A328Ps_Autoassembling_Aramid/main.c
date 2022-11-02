@@ -333,7 +333,7 @@ void Step5()
 			return;
 		}
 		
-		_delay_us(500);
+		_delay_us(600);
 		ImpOff;
 		_delay_ms(5);
 		return;
