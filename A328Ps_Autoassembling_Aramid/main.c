@@ -45,10 +45,10 @@
 #define ArraySize		  64		// these parameters also should be positioned in ROM
 #define StartDelay		  5			// delay to start measuring after spindle start
 #define FaultDelay		  1200  	// if Mode.operation != Stop > FaultDelay then spindle stop
-#define RangeUp			  0.005		// if ratio > range up then motor left
-#define RangeDown		  -0.005
-#define LeftStepDuration  4			// seconds	 sp5 - 4	   sp3 - 2	   rest 3
-#define RightStepDuration 4			// seconds		sp5 - 4				    rest 3
+#define RangeUp			  0.004		// if ratio > range up then motor left
+#define RangeDown		  -0.004
+#define LeftStepDuration  3			// seconds	 sp5 - 4	   sp3 - 2	   rest 3
+#define RightStepDuration 3			// seconds		sp5 - 4				    rest 3
 #define PauseBetweenSteps 32		// seconds
 #define Overfeed		  0			// factor to keep wrong assembling (for example if we need asm - 10%)
 
@@ -350,9 +350,9 @@ void Step5()
 void Step()
 {
 	ImpOn;
-	_delay_us(450);
-	ImpOff;
 	_delay_ms(5);
+	ImpOff;
+	_delay_ms(1);
 }
 
 void Regulation()
@@ -434,7 +434,7 @@ int main()
 			MainTimer.handle = false;
 		}
 		
-		if (Motor.isStep) Step5();
+		if (Motor.isStep) Step4();
 		
 		wdt_reset();
     }
